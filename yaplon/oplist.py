@@ -4,7 +4,7 @@ Serialized Data Converter.
 Licensed under MIT
 Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
-from . import plistlib
+import plistlib
 import datetime
 import re
 import collections
@@ -58,7 +58,7 @@ def convert_timestamp(obj):
 def plist_convert_from(obj):
     """Convert specific plist items to a form usable by others."""
 
-    if isinstance(obj, (collections.OrderedDict, plistlib._InternalDict)):
+    if isinstance(obj, (collections.OrderedDict)):
         for k, v in obj.items():
             obj[k] = plist_convert_from(v)
     elif isinstance(obj, list):

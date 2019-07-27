@@ -5,7 +5,7 @@ Licensed under MIT
 Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
 import json
-from . import plistlib
+import plistlib
 import base64
 import collections
 from .file_strip.json import sanitize_json
@@ -13,11 +13,17 @@ from .file_strip.json import sanitize_json
 __all__ = ("read_json", "json_dumps")
 
 
-def json_dumps(obj, preserve_binary=False):
+def json_dumps(obj, preserve_binary=False, compact=False):
     """Wrap json dumps."""
+    if compact:
+        indent = None
+        separators = (',', ':')
+    else:
+        indent = 4
+        separators = (',', ': ')
 
     return json.dumps(
-        json_convert_to(obj, preserve_binary), sort_keys=False, indent=4, separators=(',', ': ')
+        json_convert_to(obj, preserve_binary), sort_keys=False, indent=indent, separators=separators
     ).encode('utf-8').decode('raw_unicode_escape')
 
 
@@ -31,7 +37,7 @@ def read_json(stream):
 def json_convert_to(obj, preserve_binary=False):
     """Strip tabs and trailing spaces to allow block format to successfully be triggered."""
 
-    if isinstance(obj, (dict, collections.OrderedDict, plistlib._InternalDict)):
+    if isinstance(obj, (dict, collections.OrderedDict)):
         for k, v in obj.items():
             obj[k] = json_convert_to(v, preserve_binary)
     elif isinstance(obj, list):

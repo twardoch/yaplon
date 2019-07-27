@@ -6,7 +6,7 @@ Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
 import datetime
 import yaml
-from . import plistlib
+import plistlib
 from collections import OrderedDict
 import re
 
@@ -133,10 +133,10 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, **kwargs):
     Dumper.represent_scalar = my_represent_scalar
 
     # Handle python dict
-    Dumper.add_representer(
-        plistlib._InternalDict,
-        lambda self, data: self.represent_dict(data)
-    )
+    #Dumper.add_representer(
+    #    plistlib._InternalDict,
+    #    lambda self, data: self.represent_dict(data)
+    #)
 
     # Handle binary data
     Dumper.add_representer(
@@ -201,7 +201,7 @@ def convert_timestamp(obj):
 def yaml_convert_to(obj, strip_tabs=False, detect_timestamp=False):
     """Convert specific serialized objects before converting to YAML."""
 
-    if isinstance(obj, (dict, plistlib._InternalDict)):
+    if isinstance(obj, (dict)):
         for k, v in obj.items():
             obj[k] = yaml_convert_to(v, strip_tabs, detect_timestamp)
     elif isinstance(obj, list):

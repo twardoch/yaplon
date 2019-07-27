@@ -36,19 +36,19 @@ setup(
     project_urls={
         'Source': "https://github.com/twardoch/yaplon"
     },
-    version='1.0',
+    version='1.0.2',
     license="MIT",
     description="Python 3-based commandline converter YAML ↔ JSON ↔ PLIST",
     long_description=long_description,
     long_description_content_type='text/markdown',
-    python_requires='>=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*',
+    python_requires='>=3.7',
     install_requires=get_requirements('requirements.txt'),
     packages=find_packages(),
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Environment :: Console',
+        'Development Status :: 4 - Beta',
         'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ],
     keywords='yaml json plist convert cli',
     entry_points='''

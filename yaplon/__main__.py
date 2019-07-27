@@ -5,7 +5,7 @@
     ------
     Copyright (c) 2019 Adam Twardoch <adam+github@twardoch.com>
     Copyright (c) 2012-2015 Isaac Muse <isaacmuse@gmail.com>
-    MIT license.
+    MIT license. Python 3.7.
     Based on https://github.com/facelessuser/SerializedDataConverter
 
     Convert between JSON, YAML and PLIST (binary and XML) in the commandline.
@@ -21,9 +21,11 @@ from . import oyaml
 
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
+VERSION = '1.0.2'
+
 
 @click.group(context_settings=CONTEXT_SETTINGS)
-@click.version_option(version='1.0')
+@click.version_option(version=VERSION)
 def cli():
     """
     Convert between JSON, YAML and PLIST (binary and XML) in the commandline.
@@ -41,13 +43,14 @@ def cli():
     'j2p', context_settings=CONTEXT_SETTINGS,
     short_help='-i JSON -o PLIST [-b] (make binary PLIST)'
     )
+@click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
     help="input JSON file, stdin if '-' or omitted"
     )
 @click.option('-o', '--out', 'output', default='-',
-              type=click.File('wb'),
+              type=str,
               help="output PLIST file, stdout if '-' or omitted"
               )
 @click.option('-b', '--bin', 'binary',
@@ -60,8 +63,10 @@ def json2plist(input, output, binary):
     """
     obj = ojson.read_json(input)
     if binary:
+        output = click.File("wb")(output)
         output.write(oplist.plist_binary_dumps(obj))
     else:
+        output = click.File("w")(output)
         output.write(oplist.plist_dumps(obj))
 
 
@@ -72,6 +77,7 @@ def json2plist(input, output, binary):
     'j2y', context_settings=CONTEXT_SETTINGS,
     short_help='-i JSON -o YAML [-m] (minify YAML)'
     )
+@click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
@@ -98,8 +104,9 @@ def json2yaml(input, output, mini):
 
 @cli.command(
     'p2j', context_settings=CONTEXT_SETTINGS,
-    short_help='-i PLIST -o JSON [-b] (keep binary in JSON)'
+    short_help='-i PLIST -o JSON [-m] (minify) [-b] (keep binary)'
     )
+@click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('rb'),
@@ -113,12 +120,16 @@ def json2yaml(input, output, mini):
               is_flag=True,
               help="preserve binary in JSON"
               )
-def plist2json(input, output, binary):
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified JSON"
+              )
+def plist2json(input, output, mini, binary):
     """
-    -i PLIST -o JSON [-b] (keep binary in JSON)
+    -i PLIST -o JSON [-m] (minify) [-b] (keep binary)
     """
-    obj = oyaml.read_yaml(input)
-    output.write(ojson.json_dumps(obj, preserve_binary=binary))
+    obj = oplist.read_plist(input)
+    output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
 
 
 # plist22yaml
@@ -128,6 +139,7 @@ def plist2json(input, output, binary):
     'p2y', context_settings=CONTEXT_SETTINGS,
     short_help='-i PLIST -o YAML [-m] (minify YAML)'
     )
+@click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('rb'),
@@ -154,8 +166,9 @@ def plist2yaml(input, output, mini):
 
 @cli.command(
     'y2j', context_settings=CONTEXT_SETTINGS,
-    short_help='-i YAML -o JSON [-b] (keep binary in JSON)'
+    short_help='-i YAML -o JSON [-m] (minify) [-b] (keep binary)'
     )
+@click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
@@ -169,12 +182,16 @@ def plist2yaml(input, output, mini):
               is_flag=True,
               help="preserve binary in JSON"
               )
-def yaml2json(input, output, binary):
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified JSON"
+              )
+def yaml2json(input, output, mini, binary):
     """
-    -i YAML -o JSON [-b] (keep binary in JSON)
+    -i YAML -o JSON [-m] (minify) [-b] (keep binary)
     """
     obj = oyaml.read_yaml(input)
-    output.write(ojson.json_dumps(obj, preserve_binary=binary))
+    output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
 
 
 # yaml22plist
@@ -184,13 +201,14 @@ def yaml2json(input, output, binary):
     'y2p', context_settings=CONTEXT_SETTINGS,
     short_help='-i YAML -o PLIST [-b] (make binary PLIST)'
     )
+@click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
     help="input YAML file, stdin if '-' or omitted"
     )
 @click.option('-o', '--out', 'output', default='-',
-              type=click.File('wb'),
+              type=str,
               help="output PLIST file, stdout if '-' or omitted"
               )
 @click.option('-b', '--bin', 'binary',
@@ -203,8 +221,10 @@ def yaml2plist(input, output, binary):
     """
     obj = oyaml.read_yaml(input)
     if binary:
+        output = click.File("wb")(output)
         output.write(oplist.plist_binary_dumps(obj))
     else:
+        output = click.File("w")(output)
         output.write(oplist.plist_dumps(obj))
 
 
