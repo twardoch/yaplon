@@ -54,7 +54,7 @@ EOF
   echo "## Publishing on https://pypi.org/project/yaplon/"
   echo "Enter your pypi.org login and password:"
 
-  python3 -m twine upload dist/*;
+  python3 -m twine upload --verbose -c "$text" dist/*;
   open "https://pypi.org/project/yaplon/";
 
 else
