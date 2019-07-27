@@ -39,7 +39,7 @@ y2j  -i YAML  -o JSON  [-m] (minify) [-b] (keep binary)
 y2p  -i YAML  -o PLIST [-b] (make binary PLIST)
 ```
 
-Also installs direct CLI tools: `json22plist`, `json22yaml`, `plist22json`, `plist22yaml`, `yaml22json`, `yaml22plist` that correspond to the commands.
+Also installs direct CLI tools: `json22plist`, `json22yaml`, `plist22json`, `plist22yaml`, `yaml22json`, `yaml22plist` that correspond to the commands. Note that they have `22` rather than `2` in the filenames, so they don’t conflict with other similar (often single-purpose) tools that you may have.
 
 ## Examples
 
