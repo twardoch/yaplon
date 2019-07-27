@@ -76,3 +76,10 @@ Read plist file, output minified JSON to stdout, via the yaplon tool with p2j co
 ```
 $ yaplon p2j -m -i input.plist
 ```
+
+## Links
+
+- Project homepage: https://twardoch.github.io/yaplon/
+- Python package on PyPi: https://pypi.org/project/yaplon/
+- Source on Github: https://github.com/twardoch/yaplon
+- Donate via https://www.paypal.me/adamtwar
