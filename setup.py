@@ -42,7 +42,7 @@ setup(
     name='yaplon',
     author='Adam Twardoch',
     author_email='adam+github@twardoch.com',
-    url='https://pypi.org/project/yaplon/',
+    url='https://twardoch.github.io/yaplon/',
     project_urls={
         'Source': "https://github.com/twardoch/yaplon"
     },
