@@ -32,11 +32,11 @@ setup(
     name='yaplon',
     author='Adam Twardoch',
     author_email='adam+github@twardoch.com',
-    url='https://github.com/twardoch/yaplon',
+    url='https://pypi.org/project/yaplon/',
     project_urls={
         'Source': "https://github.com/twardoch/yaplon"
     },
-    version='1.0.2',
+    version='1.0.3',
     license="MIT",
     description="Python 3-based commandline converter YAML ↔ JSON ↔ PLIST",
     long_description=long_description,

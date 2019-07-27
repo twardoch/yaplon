@@ -21,7 +21,7 @@ from . import oyaml
 
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
-VERSION = '1.0.2'
+VERSION = '1.0.3'
 
 
 @click.group(context_settings=CONTEXT_SETTINGS)

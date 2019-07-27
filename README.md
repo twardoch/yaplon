@@ -10,13 +10,13 @@ Can be used in piping. Written in Python 3.7 (not 2.7 compatible).
 
 ## Installation
 
-Install the release version:
+- Install the [release version](https://pypi.org/project/yaplon/):
 
 ```
 pip3 install --user --upgrade yaplon
 ```
 
-Install the development version:
+- Install the [development version](https://github.com/twardoch/yaplon):
 
 ```
 pip3 install --user --upgrade git+https://github.com/twardoch/yaplon
