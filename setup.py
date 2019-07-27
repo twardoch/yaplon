@@ -9,6 +9,16 @@ with open(path.join(path.abspath(path.dirname(__file__)), 'README.md')) as f:
     long_description = f.read()
 
 
+def get_version(*args):
+    verstrline = open("yaplon/__init__.py", "rt").read()
+    VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
+    mo = re.search(VSRE, verstrline, re.M)
+    if mo:
+        return mo.group(1)
+    else:
+        return "undefined"
+
+
 def get_requirements(*args):
     """Get requirements from pip requirement files."""
     requirements = set()
@@ -36,7 +46,7 @@ setup(
     project_urls={
         'Source': "https://github.com/twardoch/yaplon"
     },
-    version='1.0.3',
+    version=get_version(),
     license="MIT",
     description="Python 3-based commandline converter YAML ↔ JSON ↔ PLIST",
     long_description=long_description,

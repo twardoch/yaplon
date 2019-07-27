@@ -15,13 +15,14 @@
 """
 
 import click
+from . import __version__
 from . import ojson
 from . import oplist
 from . import oyaml
 
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
-VERSION = '1.0.3'
+VERSION = __version__
 
 
 @click.group(context_settings=CONTEXT_SETTINGS)
