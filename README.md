@@ -6,7 +6,7 @@ Can be used in piping. Written in Python 3.7 (not 2.7 compatible).
 - Copyright (c) 2019 Adam Twardoch <adam+github@twardoch.com>
 - Copyright (c) 2012-2015 Isaac Muse <isaacmuse@gmail.com>
 - [MIT license](./LICENSE)
-- Based on https://github.com/facelessuser/SerializedDataConverter
+- Based on [Serialized Data Converter for Sublime Text](https://github.com/facelessuser/SerializedDataConverter)
 
 ## Installation
 
@@ -79,7 +79,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Links
 
-- Project homepage: https://twardoch.github.io/yaplon/
-- Python package on PyPi: https://pypi.org/project/yaplon/
-- Source on Github: https://github.com/twardoch/yaplon
-- Donate via https://www.paypal.me/adamtwar
+- Project homepage: [https://twardoch.github.io/yaplon/](https://twardoch.github.io/yaplon/)
+- Python package on PyPi: [https://pypi.org/project/yaplon/](https://pypi.org/project/yaplon/)
+- Source on Github: [https://github.com/twardoch/yaplon](https://github.com/twardoch/yaplon)
+- Donate via [https://www.paypal.me/adamtwar](https://www.paypal.me/adamtwar)
