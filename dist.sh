@@ -3,13 +3,18 @@
 USAGE="Usage: ./dist.sh version releasetext";
 if [ $# -ge 2 ]; then
 
+  echo "## Updating publishing tools"
+
   python3 -m pip install --user --upgrade setuptools wheel pip twine;
   version=$1
   text=$2
 
   rm dist/*;
+
+  echo "## Preparing release"
   python3 setup.py sdist bdist_wheel;
 
+  echo "## Pushing to Github"
   git add --all
   git commit -am "v$version: $text"
   git push
@@ -42,8 +47,12 @@ if [ $# -ge 2 ]; then
 EOF
   }
 
-  echo "Create release $version for repo: $repo_full_name branch: $branch"
+  echo "## Creating release $version for repo: $repo_full_name branch: $branch"
   curl --data "$(generate_post_data)" "https://api.github.com/repos/$user/$repo/releases?access_token=$token"
+
+  echo
+  echo "## Publishing on https://pypi.org/project/yaplon/"
+  echo "Enter your pypi.org login and password:"
 
   python3 -m twine upload dist/*;
   open "https://pypi.org/project/yaplon/";
