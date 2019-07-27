@@ -17,6 +17,7 @@ if [ $# -ge 2 ]; then
   echo "## Pushing to Github"
   git add --all
   git commit -am "v$version: $text"
+  git pull
   git push
 
   branch=$(git rev-parse --abbrev-ref HEAD)
