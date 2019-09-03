@@ -100,7 +100,9 @@ def read_yaml(stream, loader=yaml.Loader):
     return yaml.load(stream, Loader)
 
 
-def yaml_dump(data, stream=None, dumper=yaml.Dumper, **kwargs):
+def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180, quote_strings=False, block_strings=False, **kwargs):
+    if not width:
+        width = float("inf")
     """Special dumper wrapper to modify the yaml dumper."""
 
     def should_use_block(value):
@@ -114,13 +116,24 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, **kwargs):
                 return True
         return False
 
+    def should_use_quotes(value):
+        if isinstance(value, str):
+            if " " in value:
+                return True
+        return False
+
     def my_represent_scalar(self, tag, value, style=None):
         """Scalar."""
         if style is None:
-            if should_use_block(value):
+            if block_strings and should_use_quotes(value):
+                style = '|'
+            elif should_use_block(value):
                 style = '|'
             else:
-                style = self.default_style
+                if quote_strings and should_use_quotes(value):
+                    style ="'"
+                else:
+                    style = self.default_style
 
         node = yaml.representer.ScalarNode(tag, value, style=style)
         if self.alias_key is not None:
@@ -151,7 +164,7 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, **kwargs):
             'tag:yaml.org,2002:map', data.items())
     )
 
-    return yaml.dump(data, stream, Dumper, **kwargs)
+    return yaml.dump(data, stream, Dumper, width=width, **kwargs)
 
 
 def convert_timestamp(obj):
@@ -222,7 +235,7 @@ def yaml_convert_to(obj, strip_tabs=False, detect_timestamp=False):
     return obj
 
 
-def yaml_dumps(obj, compact=False, detect_timestamp=False):
+def yaml_dumps(obj, compact=False, detect_timestamp=False, width=180, quote_strings=False, block_strings=False):
     """Wrapper for yaml dump."""
     if compact:
         default_flow_style = True
@@ -237,8 +250,10 @@ def yaml_dumps(obj, compact=False, detect_timestamp=False):
 
     return yaml_dump(
         yaml_convert_to(obj, strip_tabs, detect_timestamp),
-        width=None,
+        width=width,
         indent=indent,
         allow_unicode=True,
-        default_flow_style=default_flow_style
+        default_flow_style=default_flow_style,
+        quote_strings=quote_strings,
+        block_strings=block_strings
     )
