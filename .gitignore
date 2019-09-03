@@ -1,6 +1,6 @@
-.github
-.mypy_cache
-.idea
+.github/
+.mypy_cache/
+.idea/
 
 
 # Byte-compiled / optimized / DLL files
