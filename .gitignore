@@ -1,7 +1,5 @@
-.github/
-.mypy_cache/
-.idea/
-
+#.mypy_cache/
+#.idea/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
