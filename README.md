@@ -77,6 +77,11 @@ Read plist file, output minified JSON to stdout, via the yaplon tool with p2j co
 $ yaplon p2j -m -i input.plist
 ```
 
+## Changelog
+
+- 1.1.0: added -s for sorting data
+- 1.0.8: initial public release
+
 ## Links
 
 - Project homepage: [https://twardoch.github.io/yaplon/](https://twardoch.github.io/yaplon/)

@@ -20,10 +20,20 @@ from . import ojson
 from . import oplist
 from . import oyaml
 
+from collections import OrderedDict
+
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 VERSION = __version__
 
+def sortOD(od):
+    res = OrderedDict()
+    for k, v in sorted(od.items()):
+        if isinstance(v, dict):
+            res[k] = sortOD(v)
+        else:
+            res[k] = v
+    return res
 
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option(version=VERSION)
@@ -58,11 +68,17 @@ def cli():
               is_flag=True,
               help="output binary PLIST"
               )
-def json2plist(input, output, binary):
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def json2plist(input, output, binary, sort):
     """
     -i JSON -o PLIST [-b] (make binary PLIST)
     """
     obj = ojson.read_json(input)
+    if sort:
+        obj = sortOD(obj)
     if binary:
         output = click.File("wb")(output)
         output.write(oplist.plist_binary_dumps(obj))
@@ -92,11 +108,17 @@ def json2plist(input, output, binary):
               is_flag=True,
               help="output minified YAML"
               )
-def json2yaml(input, output, mini):
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def json2yaml(input, output, mini, sort):
     """
     -i JSON -o YAML [-m] (minify YAML)
     """
     obj = ojson.read_json(input)
+    if sort:
+        obj = sortOD(obj)
     output.write(oyaml.yaml_dumps(obj, compact=mini))
 
 
@@ -125,11 +147,17 @@ def json2yaml(input, output, mini):
               is_flag=True,
               help="output minified JSON"
               )
-def plist2json(input, output, mini, binary):
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def plist2json(input, output, mini, binary, sort):
     """
     -i PLIST -o JSON [-m] (minify) [-b] (keep binary)
     """
     obj = oplist.read_plist(input)
+    if sort:
+        obj = sortOD(obj)
     output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
 
 
@@ -154,11 +182,17 @@ def plist2json(input, output, mini, binary):
               is_flag=True,
               help="output minified YAML"
               )
-def plist2yaml(input, output, mini):
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def plist2yaml(input, output, mini, sort):
     """
     -i PLIST -o YAML [-m] (minify YAML)
     """
     obj = oplist.read_plist(input)
+    if sort:
+        obj = sortOD(obj)
     output.write(oyaml.yaml_dumps(obj, compact=mini))
 
 
@@ -187,11 +221,17 @@ def plist2yaml(input, output, mini):
               is_flag=True,
               help="output minified JSON"
               )
-def yaml2json(input, output, mini, binary):
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def yaml2json(input, output, mini, binary, sort):
     """
     -i YAML -o JSON [-m] (minify) [-b] (keep binary)
     """
     obj = oyaml.read_yaml(input)
+    if sort:
+        obj = sortOD(obj)
     output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
 
 
@@ -216,11 +256,17 @@ def yaml2json(input, output, mini, binary):
               is_flag=True,
               help="output binary PLIST"
               )
-def yaml2plist(input, output, binary):
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def yaml2plist(input, output, binary, sort):
     """
     -i YAML -o PLIST [-b] (make binary PLIST)
     """
     obj = oyaml.read_yaml(input)
+    if sort:
+        obj = sortOD(obj)
     if binary:
         output = click.File("wb")(output)
         output.write(oplist.plist_binary_dumps(obj))
