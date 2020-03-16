@@ -100,7 +100,8 @@ def read_yaml(stream, loader=yaml.Loader):
     return yaml.load(stream, Loader)
 
 
-def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180, quote_strings=False, block_strings=False, **kwargs):
+def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180,
+              quote_strings=False, block_strings=False, double_quote=False,  **kwargs):
     if not width:
         width = float("inf")
     """Special dumper wrapper to modify the yaml dumper."""
@@ -118,7 +119,17 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180, quote_strings=Fa
 
     def should_use_quotes(value):
         if isinstance(value, str):
-            if " " in value:
+            if ' ' in value:
+                return True
+        return False
+
+    def must_use_quotes(value):
+        if isinstance(value, str) and len(value) > 0:
+            if ':' in value:
+                return True
+            elif value[0] in (' ', '.', '@'):
+                return True
+            elif value[-1] in (' ', '.'):
                 return True
         return False
 
@@ -131,9 +142,13 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180, quote_strings=Fa
                 style = '|'
             else:
                 if quote_strings and should_use_quotes(value):
-                    style ="'"
+                    style = 'double-quoted' if double_quote else 'single-quoted'
+                elif must_use_quotes(value):
+                    style = 'double-quoted' if double_quote else self.default_style
                 else:
                     style = self.default_style
+            if value == '':
+                style = 'double-quoted' if double_quote else 'single-quoted'
 
         node = yaml.representer.ScalarNode(tag, value, style=style)
         if self.alias_key is not None:
@@ -235,7 +250,9 @@ def yaml_convert_to(obj, strip_tabs=False, detect_timestamp=False):
     return obj
 
 
-def yaml_dumps(obj, compact=False, detect_timestamp=False, width=180, quote_strings=False, block_strings=False):
+def yaml_dumps(obj, compact=False, detect_timestamp=False, width=180,
+               quote_strings=False, block_strings=False, indent=4,
+               double_quote=False):
     """Wrapper for yaml dump."""
     if compact:
         default_flow_style = True
@@ -245,7 +262,7 @@ def yaml_dumps(obj, compact=False, detect_timestamp=False, width=180, quote_stri
     else:
         default_flow_style = False
         canonical = True
-        indent = 4
+        indent = indent
         strip_tabs = False
 
     return yaml_dump(
@@ -255,5 +272,6 @@ def yaml_dumps(obj, compact=False, detect_timestamp=False, width=180, quote_stri
         allow_unicode=True,
         default_flow_style=default_flow_style,
         quote_strings=quote_strings,
-        block_strings=block_strings
+        block_strings=block_strings,
+        double_quote=double_quote
     )
