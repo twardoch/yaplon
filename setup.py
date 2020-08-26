@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from setuptools import setup, find_packages
+from cx_Freeze import setup, Executable
 from os import path
 import re
 
@@ -71,4 +72,17 @@ setup(
         yaml22json=yaplon.__main__:yaml2json
         yaml22plist=yaplon.__main__:yaml2plist
     ''',
+    options={
+        "build_exe": {
+            "packages": ["os"],
+            "excludes": ["tkinter"]
+        }
+    },
+    executables=[
+        Executable(
+            path.join("yaplon", "__main__.py"),
+            targetName="yaplon.exe",
+            base=None
+        )
+    ]
 )
