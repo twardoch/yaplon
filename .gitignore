@@ -1,6 +1,8 @@
 .mypy_cache/
 .idea/
 
+.code_workspace
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
