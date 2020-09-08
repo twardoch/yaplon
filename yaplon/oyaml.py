@@ -9,6 +9,7 @@ import yaml
 import plistlib
 from collections import OrderedDict
 import re
+from orderedattrdict import AttrDict
 
 __all__ = ("read_yaml", "yaml_dumps")
 
@@ -161,10 +162,10 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180,
     Dumper.represent_scalar = my_represent_scalar
 
     # Handle python dict
-    #Dumper.add_representer(
+    # Dumper.add_representer(
     #    plistlib._InternalDict,
     #    lambda self, data: self.represent_dict(data)
-    #)
+    # )
 
     # Handle binary data
     Dumper.add_representer(
@@ -179,7 +180,14 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180,
             'tag:yaml.org,2002:map', data.items())
     )
 
-    return yaml.dump(data, stream, Dumper, width=width, **kwargs)
+    # Handle AttrDict
+    Dumper.add_representer(
+        AttrDict,
+        lambda self, data: self.represent_mapping(
+            'tag:yaml.org,2002:map', data.items())
+    )
+
+    return yaml.dump(data, stream, Dumper, width=width, allow_unicode=True, **kwargs)
 
 
 def convert_timestamp(obj):

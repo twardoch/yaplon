@@ -79,6 +79,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Changelog
 
+- 1.2.1: added support for orderedattrdict.AttrDict
 - 1.1.0: added -s for sorting data
 - 1.0.8: initial public release
 
