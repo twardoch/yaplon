@@ -51,7 +51,7 @@ def convert_timestamp(obj):
 
     time_stamp = None
     if plistlib._dateParser.match(obj):
-        time_stamp = plistlib._dateFromString(obj)
+        time_stamp = plistlib._date_from_string(obj)
     return time_stamp
 
 
@@ -67,7 +67,7 @@ def plist_convert_from(obj):
             obj[count] = plist_convert_from(v)
             count += 1
     elif isinstance(obj, datetime.datetime):
-        obj = plistlib._dateToString(obj)
+        obj = plistlib._date_to_string(obj)
 
     return obj
 
