@@ -89,5 +89,4 @@ setup(
         yaml22json=yaplon.__main__:yaml2json
         yaml22plist=yaplon.__main__:yaml2plist
     '''
-
 )
