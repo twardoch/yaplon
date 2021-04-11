@@ -168,10 +168,10 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180,
     # )
 
     # Handle binary data
-    Dumper.add_representer(
-        plistlib.Data,
-        lambda self, data: self.represent_binary(data.data)
-    )
+    #Dumper.add_representer(
+    #    plistlib.Data,
+    #    lambda self, data: self.represent_binary(data.data)
+    #)
 
     # Handle Ordered Dict
     Dumper.add_representer(

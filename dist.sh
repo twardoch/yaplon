@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
-USAGE="Usage: ./dist.sh version releasetext";
-if [ $# -ge 2 ]; then
+USAGE="Usage: ./dist.sh releasetext";
+if [ $# -ge 1 ]; then
 
   echo "## Updating publishing tools"
 
   python3 -m pip install --user --upgrade setuptools wheel pip twine;
-  version=$1
-  text=$2
+
+  version=$(echo -e "import yaplon.__init__\nprint(yaplon.__init__.__version__)" | python3)
+
+  text=$1
 
   rm dist/*;
 
