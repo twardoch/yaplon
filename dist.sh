@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+APP="yaplon"
 USAGE="Usage: ./dist.sh releasetext";
 if [ $# -ge 1 ]; then
 
@@ -7,7 +8,7 @@ if [ $# -ge 1 ]; then
 
   python3 -m pip install --user --upgrade setuptools wheel pip twine;
 
-  version=$(echo -e "import yaplon.__init__\nprint(yaplon.__init__.__version__)" | python3)
+  version=$(echo -e "import $APP.__init__\nprint($APP.__init__.__version__)" | python3)
 
   text=$1
 
@@ -54,11 +55,11 @@ EOF
   curl --data "$(generate_post_data)" "https://api.github.com/repos/$user/$repo/releases?access_token=$token"
 
   echo
-  echo "## Publishing on https://pypi.org/project/yaplon/"
+  echo "## Publishing on https://pypi.org/project/$APP/"
   echo "Enter your pypi.org login and password:"
 
   python3 -m twine upload --verbose -c "$text" dist/*;
-  open "https://pypi.org/project/yaplon/";
+  open "https://pypi.org/project/$APP/";
 
 else
   echo $USAGE;

@@ -79,7 +79,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Changelog
 
-- 1.2.6: removed obsolete plistlib.Data reference
+- 1.2.7: removed obsolete plistlib.Data reference
 - 1.2.3: bugfix
 - 1.2.1: added support for orderedattrdict.AttrDict
 - 1.1.0: added -s for sorting data
