@@ -1,9 +1,9 @@
 # yaplon
 
 Convert between JSON, YAML and PLIST (binary and XML) in the commandline.
-Can be used in piping. Written in Python 3.7 (not 2.7 compatible).
+Can be used in piping. Written in Python 3.9 (not 2.7 compatible).
 
-- Copyright (c) 2019 Adam Twardoch <adam+github@twardoch.com>
+- Copyright (c) 2021 Adam Twardoch <adam+github@twardoch.com>
 - Copyright (c) 2012-2015 Isaac Muse <isaacmuse@gmail.com>
 - [MIT license](./LICENSE)
 - Based on [Serialized Data Converter for Sublime Text](https://github.com/facelessuser/SerializedDataConverter)
@@ -79,6 +79,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Changelog
 
+- 1.2.6: removed obsolete plistlib.Data reference
 - 1.2.3: bugfix
 - 1.2.1: added support for orderedattrdict.AttrDict
 - 1.1.0: added -s for sorting data

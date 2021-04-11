@@ -6,6 +6,8 @@ from setuptools import setup, find_packages
 import os
 import re
 
+NAME = 'yaplon'
+
 readme_file = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), 'README.md')
 try:
@@ -18,7 +20,7 @@ except ImportError:
 
 
 def get_version(*args):
-    verstrline = open("yaplon/__init__.py", "rt").read()
+    verstrline = open(os.path.join(NAME, "__init__.py"), "rt").read()
     VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
     mo = re.search(VSRE, verstrline, re.M)
     if mo:
@@ -47,19 +49,19 @@ def get_absolute_path(*args):
 
 
 setup(
-    name='yaplon',
+    name=NAME,
     author='Adam Twardoch',
     author_email='adam+github@twardoch.com',
-    url='https://twardoch.github.io/yaplon/',
+    url='https://twardoch.github.io/%s/' % (NAME),
     project_urls={
-        'Source': "https://github.com/twardoch/yaplon"
+        'Source': "https://github.com/twardoch/%s/" % (NAME)
     },
     version=get_version(),
     license="MIT",
     description="Python 3-based commandline converter YAML ↔ JSON ↔ PLIST",
     long_description=readme,
     long_description_content_type='text/x-rst',
-    python_requires='>=3.7',
+    python_requires='>=3.9',
     install_requires=get_requirements('requirements.txt'),
     extras_require={
         'dev': [
@@ -81,12 +83,12 @@ setup(
     keywords='yaml json plist convert cli',
     entry_points='''
         [console_scripts]
-        yaplon=yaplon.__main__:cli
-        json22plist=yaplon.__main__:json2plist
-        json22yaml=yaplon.__main__:json2yaml
-        plist22json=yaplon.__main__:plist2json
-        plist22yaml=yaplon.__main__:plist2yaml
-        yaml22json=yaplon.__main__:yaml2json
-        yaml22plist=yaplon.__main__:yaml2plist
-    '''
+        %(name)s=%(name)s.__main__:cli
+        json22plist=%(name)s.__main__:json2plist
+        json22yaml=%(name)s.__main__:json2yaml
+        plist22json=%(name)s.__main__:plist2json
+        plist22yaml=%(name)s.__main__:plist2yaml
+        yaml22json=%(name)s.__main__:yaml2json
+        yaml22plist=%(name)s.__main__:yaml2plist
+    ''' % {'name': NAME}
 )
