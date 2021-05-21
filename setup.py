@@ -58,7 +58,7 @@ setup(
     },
     version=get_version(),
     license="MIT",
-    description="Python 3-based commandline converter YAML ↔ JSON ↔ PLIST",
+    description="Python 3-based commandline converter CSV → YAML ↔ JSON ↔ PLIST ↔ XML",
     long_description=readme,
     long_description_content_type='text/x-rst',
     python_requires='>=3.9',
@@ -80,15 +80,25 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3.9',
     ],
-    keywords='yaml json plist convert cli',
+    keywords='yaml json plist csv xml convert cli',
     entry_points='''
         [console_scripts]
         %(name)s=%(name)s.__main__:cli
+        csv22json=%(name)s.__main__:csv2json
+        csv22plist=%(name)s.__main__:csv2plist
+        csv22xml=%(name)s.__main__:csv2xml
+        csv22yaml=%(name)s.__main__:csv2yaml
         json22plist=%(name)s.__main__:json2plist
+        json22xml=%(name)s.__main__:json2xml
         json22yaml=%(name)s.__main__:json2yaml
         plist22json=%(name)s.__main__:plist2json
+        plist22xml=%(name)s.__main__:plist2xml
         plist22yaml=%(name)s.__main__:plist2yaml
+        xml22json=%(name)s.__main__:xml2json
+        xml22plist=%(name)s.__main__:xml2plist
+        xml22yaml=%(name)s.__main__:xml2yaml
         yaml22json=%(name)s.__main__:yaml2json
         yaml22plist=%(name)s.__main__:yaml2plist
+        yaml22xml=%(name)s.__main__:yaml2xml
     ''' % {'name': NAME}
 )

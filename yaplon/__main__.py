@@ -16,9 +16,8 @@
 
 import click
 from . import __version__
-from . import ojson
-from . import oplist
-from . import oyaml
+from . import reader
+from . import writer
 
 from collections import OrderedDict
 
@@ -26,29 +25,20 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 VERSION = __version__
 
-def sortOD(od):
-    res = OrderedDict()
-    for k, v in sorted(od.items()):
-        if isinstance(v, dict):
-            res[k] = sortOD(v)
-        else:
-            res[k] = v
-    return res
-
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option(version=VERSION)
 def cli():
     """
-    Convert between JSON, YAML and PLIST (binary and XML) in the commandline.
+    Convert between JSON, YAML, PLIST (binary/XML),
+    XML and CSV (read-only) in the commandline.
 
-    Usage: yaplon j2p|j2y|p2j|p2y|y2j|y2p -i input -o output [options]
+    Usage: yaplon [c|j|p|x|y]2[j|p|x|y] -i input -o output [options]
 
     Omit -i to use stdin. Omit -o to use stdout.
     Type 'yaplon command --help' for more info on each conversion command.
     """
 
 # json22plist
-
 
 @cli.command(
     'j2p', context_settings=CONTEXT_SETTINGS,
@@ -76,15 +66,13 @@ def json2plist(input, output, binary, sort):
     """
     -i JSON -o PLIST [-b] (make binary PLIST)
     """
-    obj = ojson.read_json(input)
-    if sort:
-        obj = sortOD(obj)
-    if binary:
-        output = click.File("wb")(output)
-        output.write(oplist.plist_binary_dumps(obj))
-    else:
-        output = click.File("w")(output)
-        output.write(oplist.plist_dumps(obj))
+    writer.plist(
+        reader.json(
+            input, sort=sort
+        ),
+        output,
+        binary=binary
+    )
 
 
 # json22yaml
@@ -116,10 +104,13 @@ def json2yaml(input, output, mini, sort):
     """
     -i JSON -o YAML [-m] (minify YAML)
     """
-    obj = ojson.read_json(input)
-    if sort:
-        obj = sortOD(obj)
-    output.write(oyaml.yaml_dumps(obj, compact=mini))
+    writer.yaml(
+        reader.json(
+            input, sort=sort
+        ),
+        output,
+        mini=mini
+    )
 
 
 # plist22json
@@ -135,13 +126,13 @@ def json2yaml(input, output, mini, sort):
     type=click.File('rb'),
     help="input PLIST file, stdin if '-' or omitted"
     )
-@click.option('-o', '--out', 'output', default='-',
-              type=click.File('w'),
-              help="output JSON file, stdout if '-' or omitted"
-              )
 @click.option('-b', '--bin', 'binary',
               is_flag=True,
               help="preserve binary in JSON"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output JSON file, stdout if '-' or omitted"
               )
 @click.option('-m', '--mini', 'mini',
               is_flag=True,
@@ -155,10 +146,14 @@ def plist2json(input, output, mini, binary, sort):
     """
     -i PLIST -o JSON [-m] (minify) [-b] (keep binary)
     """
-    obj = oplist.read_plist(input)
-    if sort:
-        obj = sortOD(obj)
-    output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
+    writer.json(
+        reader.plist(
+            input, sort=sort
+        ),
+        output,
+        mini=mini,
+        binary=binary
+    )
 
 
 # plist22yaml
@@ -190,10 +185,13 @@ def plist2yaml(input, output, mini, sort):
     """
     -i PLIST -o YAML [-m] (minify YAML)
     """
-    obj = oplist.read_plist(input)
-    if sort:
-        obj = sortOD(obj)
-    output.write(oyaml.yaml_dumps(obj, compact=mini))
+    writer.yaml(
+        reader.plist(
+            input, sort=sort
+        ),
+        output,
+        mini=mini
+    )
 
 
 # yaml22json
@@ -209,13 +207,13 @@ def plist2yaml(input, output, mini, sort):
     type=click.File('r'),
     help="input YAML file, stdin if '-' or omitted"
     )
-@click.option('-o', '--out', 'output', default='-',
-              type=click.File('w'),
-              help="output JSON file, stdout if '-' or omitted"
-              )
 @click.option('-b', '--bin', 'binary',
               is_flag=True,
               help="preserve binary in JSON"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output JSON file, stdout if '-' or omitted"
               )
 @click.option('-m', '--mini', 'mini',
               is_flag=True,
@@ -229,11 +227,14 @@ def yaml2json(input, output, mini, binary, sort):
     """
     -i YAML -o JSON [-m] (minify) [-b] (keep binary)
     """
-    obj = oyaml.read_yaml(input)
-    if sort:
-        obj = sortOD(obj)
-    output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
-
+    writer.json(
+        reader.yaml(
+            input, sort=sort
+        ),
+        output,
+        mini=mini,
+        binary=binary
+    )
 
 # yaml22plist
 
@@ -264,15 +265,486 @@ def yaml2plist(input, output, binary, sort):
     """
     -i YAML -o PLIST [-b] (make binary PLIST)
     """
-    obj = oyaml.read_yaml(input)
-    if sort:
-        obj = sortOD(obj)
-    if binary:
-        output = click.File("wb")(output)
-        output.write(oplist.plist_binary_dumps(obj))
-    else:
-        output = click.File("w")(output)
-        output.write(oplist.plist_dumps(obj))
+    writer.plist(
+        reader.yaml(
+            input, sort=sort
+        ),
+        output,
+        binary=binary
+    )
+
+
+
+# csv22json
+
+@cli.command(
+    'c2j', context_settings=CONTEXT_SETTINGS,
+    short_help='-i CSV -o JSON [-d DIALECT] [-k KEY] [-m] (minify)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+            '-i', '--in', 'input', default='-',
+            type=click.File('r'),
+            help="input CSV file, stdin if '-' or omitted"
+)
+@click.option('-H', '--header', 'header',
+              is_flag=True,
+              help="CSV has header and reads as dict"
+              )
+@click.option('-d', '--dialect', 'dialect', default=None,
+              type=str,
+              help="CSV dialect like 'excel' or 'excel-tab'"
+              )
+@click.option('-k', '--key', 'key', default=0,
+              type=int,
+              help="if CSV has header, use column number as main key"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output JSON file, stdout if '-' or omitted"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified JSON"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def csv2json(input, output, dialect, header, key, mini, sort):
+    """
+    -i CSV -o JSON [-d DIALECT] [-k KEY] [-m] (minify)
+    """
+    writer.json(
+        reader.csv(
+            input, dialect=dialect, header=header, key=key, sort=sort
+        ),
+        output,
+        mini=mini
+    )
+
+
+# csv22yaml
+
+@cli.command(
+    'c2y', context_settings=CONTEXT_SETTINGS,
+    short_help='-i CSV -o YAML [-d DIALECT] [-k KEY] [-m] (minify)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('r'),
+    help="input CSV file, stdin if '-' or omitted"
+)
+@click.option('-H', '--header', 'header',
+              is_flag=True,
+              help="CSV has header and reads as dict"
+              )
+@click.option('-d', '--dialect', 'dialect', default=None,
+              type=str,
+              help="CSV dialect like 'excel' or 'excel-tab'"
+              )
+@click.option('-k', '--key', 'key', default=0,
+              type=int,
+              help="if CSV has header, use column number as main key"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output YAML file, stdout if '-' or omitted"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified YAML"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def csv2yaml(input, output, dialect, header, key, mini, sort):
+    """
+    -i CSV -o YAML [-d DIALECT] [-k KEY] [-m] (minify)
+    """
+    writer.yaml(
+        reader.csv(
+            input, dialect=dialect, header=header, key=key, sort=sort
+        ),
+        output,
+        mini=mini
+    )
+
+
+# csv22plist
+
+@cli.command(
+    'c2p', context_settings=CONTEXT_SETTINGS,
+    short_help='-i CSV -o PLIST [-d DIALECT] [-k KEY] [-m] (minify)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('r'),
+    help="input CSV file, stdin if '-' or omitted"
+)
+@click.option('-H', '--header', 'header',
+              is_flag=True,
+              help="CSV has header and reads as dict"
+              )
+@click.option('-d', '--dialect', 'dialect', default=None,
+              type=str,
+              help="CSV dialect like 'excel' or 'excel-tab'"
+              )
+@click.option('-k', '--key', 'key', default=0,
+              type=int,
+              help="if CSV has header, use column number as main key"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output PLIST file, stdout if '-' or omitted"
+              )
+@click.option('-b', '--bin', 'binary',
+              is_flag=True,
+              help="output binary PLIST"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def csv2plist(input, output, dialect, header, key, binary, sort):
+    """
+    -i CSV -o PLIST [-d DIALECT] [-k KEY] [-m] (minify) [-b] (binary PLIST)
+    """
+    writer.plist(
+        reader.csv(
+            input, dialect=dialect, header=header, key=key, sort=sort
+        ),
+        output,
+        binary=binary
+    )
+
+
+# json22xml
+
+@cli.command(
+    'j2x', context_settings=CONTEXT_SETTINGS,
+    short_help='-i JSON -o XML [-m] (minify) [-S] (simple XML)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('r'),
+    help="input JSON file, stdin if '-' or omitted"
+)
+@click.option('-o', '--out', 'output', default='-',
+              type=str,
+              help="output XML file, stdout if '-' or omitted"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified XML"
+              )
+@click.option('-R', '--root', 'root', default='root',
+              type=str,
+              help="root XML element if missing"
+              )
+@click.option('-S', '--simple', 'simple',
+              is_flag=True,
+              help="output simple XML"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def json2xml(input, output, mini, simple, root, sort):
+    """
+    -i JSON -o XML [-m] (minify) [-S] (simple XML)
+    """
+    writer.xml(
+        reader.json(
+            input, sort=sort
+        ),
+        output,
+        mini=mini,
+        simple=simple,
+        root=root
+    )
+
+
+# plist22xml
+
+@cli.command(
+    'p2x', context_settings=CONTEXT_SETTINGS,
+    short_help='-i PLIST -o XML [-m] (minify) [-S] (simple XML)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('rb'),
+    help="input PLIST file, stdin if '-' or omitted"
+)
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output XML file, stdout if '-' or omitted"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified XML"
+              )
+@click.option('-R', '--root', 'root', default='root',
+              type=str,
+              help="root XML element if missing"
+              )
+@click.option('-S', '--simple', 'simple',
+              is_flag=True,
+              help="output simple XML"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def plist2xml(input, output, mini, simple, root, sort):
+    """
+    -i PLIST -o XML [-m] (minify) [-S] (simple XML)
+    """
+    writer.xml(
+        reader.plist(
+            input, sort=sort
+        ),
+        output,
+        mini=mini,
+        simple=simple,
+        root=root
+    )
+
+
+# yaml22xml
+
+@cli.command(
+    'y2x', context_settings=CONTEXT_SETTINGS,
+    short_help='-i YAML -o XML [-m] (minify) [-S] (simple XML)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('rb'),
+    help="input PLIST file, stdin if '-' or omitted"
+)
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output XML file, stdout if '-' or omitted"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified XML"
+              )
+@click.option('-R', '--root', 'root', default='root',
+              type=str,
+              help="root XML element if missing"
+              )
+@click.option('-S', '--simple', 'simple',
+              is_flag=True,
+              help="output simple XML"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def yaml2xml(input, output, mini, simple, root, sort):
+    """
+    -i YAML -o XML [-m] (minify) [-S] (simple XML)
+    """
+    writer.xml(
+        reader.yaml(
+            input, sort=sort
+        ),
+        output,
+        mini=mini,
+        simple=simple,
+        root=root
+    )
+
+
+# csv22xml
+
+@cli.command(
+    'c2x', context_settings=CONTEXT_SETTINGS,
+    short_help='-i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-S] (simple XML)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('r'),
+    help="input CSV file, stdin if '-' or omitted"
+)
+@click.option('-H', '--header', 'header',
+              is_flag=True,
+              help="CSV has header and reads as dict"
+              )
+@click.option('-d', '--dialect', 'dialect', default=None,
+              type=str,
+              help="CSV dialect like 'excel' or 'excel-tab'"
+              )
+@click.option('-k', '--key', 'key', default=0,
+              type=int,
+              help="if CSV has header, use column number as main key"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output XML file, stdout if '-' or omitted"
+              )
+@click.option('-R', '--root', 'root', default='root',
+              type=str,
+              help="root XML element if missing"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified XML"
+              )
+@click.option('-S', '--simple', 'simple',
+              is_flag=True,
+              help="output simple XML"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def csv2xml(input, output, dialect, header, key, mini, simple, sort):
+    """
+    -i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-S] (simple XML)
+    """
+    writer.xml(
+        reader.csv(
+            input, dialect=dialect, header=header, key=key, sort=sort
+        ),
+        output,
+        mini=mini,
+        simple=simple,
+        root=root
+    )
+
+
+# xml22plist
+
+@cli.command(
+    'x2p', context_settings=CONTEXT_SETTINGS,
+    short_help='-i XML -o PLIST [-b] (make binary PLIST)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('r'),
+    help="input JSON file, stdin if '-' or omitted"
+)
+@click.option('-N', '--namespaces', 'namespaces',
+              is_flag=True,
+              help="read XML namespaces"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=str,
+              help="output PLIST file, stdout if '-' or omitted"
+              )
+@click.option('-b', '--bin', 'binary',
+              is_flag=True,
+              help="output binary PLIST"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def xml2plist(input, output, namespaces, binary, sort):
+    """
+    -i XML -o PLIST [-b] (make binary PLIST)
+    """
+    writer.plist(
+        reader.xml(
+            input, namespaces=namespaces, sort=sort
+        ),
+        output,
+        binary=binary
+    )
+
+
+# xml22yaml
+
+
+@cli.command(
+    'x2y', context_settings=CONTEXT_SETTINGS,
+    short_help='-i XML -o YAML [-m] (minify YAML)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('r'),
+    help="input JSON file, stdin if '-' or omitted"
+)
+@click.option('-N', '--namespaces', 'namespaces',
+              is_flag=True,
+              help="read XML namespaces"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output YAML file, stdout if '-' or omitted"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified YAML"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def xml2yaml(input, output, namespaces, mini, sort):
+    """
+    -i XML -o YAML [-m] (minify YAML)
+    """
+    writer.yaml(
+        reader.xml(
+            input, namespaces=namespaces, sort=sort
+        ),
+        output,
+        mini=mini
+    )
+
+
+# xml22json
+
+
+@cli.command(
+    'x2j', context_settings=CONTEXT_SETTINGS,
+    short_help='-i XML -o JSON [-m] (minify) [-b] (keep binary)'
+)
+@click.version_option(version=VERSION)
+@click.option(
+    '-i', '--in', 'input', default='-',
+    type=click.File('rb'),
+    help="input PLIST file, stdin if '-' or omitted"
+)
+@click.option('-N', '--namespaces', 'namespaces',
+              is_flag=True,
+              help="read XML namespaces"
+              )
+@click.option('-o', '--out', 'output', default='-',
+              type=click.File('w'),
+              help="output JSON file, stdout if '-' or omitted"
+              )
+@click.option('-m', '--mini', 'mini',
+              is_flag=True,
+              help="output minified JSON"
+              )
+@click.option('-s', '--sort', 'sort',
+              is_flag=True,
+              help="sort data"
+              )
+def xml2json(input, output, namespaces, mini, sort):
+    """
+    -i XML -o JSON [-m] (minify)
+    """
+    writer.json(
+        reader.xml(
+            input, namespaces=namespaces, sort=sort
+        ),
+        output,
+        mini=mini
+    )
 
 
 if __name__ == '__main__':

@@ -45,14 +45,14 @@ def json_convert_to(obj, preserve_binary=False):
         for v in obj:
             obj[count] = json_convert_to(v, preserve_binary)
             count += 1
-    elif isinstance(obj, plistlib.Data):
-        if preserve_binary:
-            obj = collections.OrderedDict(
-                [("!!python/object:plistlib.Data",
-                  base64.b64encode(obj.data).decode("ascii"))]
-            )
-        else:
-            obj = base64.b64encode(obj.data).decode("ascii")
+    #elif isinstance(obj, plistlib.Data):
+    #    if preserve_binary:
+    #        obj = collections.OrderedDict(
+    #            [("!!python/object:plistlib.Data",
+    #              base64.b64encode(obj.data).decode("ascii"))]
+    #        )
+    #    else:
+    #        obj = base64.b64encode(obj.data).decode("ascii")
 
     return obj
 

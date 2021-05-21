@@ -25,18 +25,28 @@ pip3 install --user --upgrade git+https://github.com/twardoch/yaplon
 ## Usage
 
 ```
-yaplon j2p|j2y|p2j|p2y|y2j|y2p -i input -o output [options]
+yaplon [c|j|p|x|y]2[j|p|x|y] -i input -o output [options]
 ```
 
 ### Commands:
 
 ```
-j2p  -i JSON  -o PLIST [-b] (make binary PLIST)
-j2y  -i JSON  -o YAML  [-m] (minify)
-p2j  -i PLIST -o JSON  [-m] (minify) [-b] (keep binary)
-p2y  -i PLIST -o YAML  [-m] (minify)
-y2j  -i YAML  -o JSON  [-m] (minify) [-b] (keep binary)
-y2p  -i YAML  -o PLIST [-b] (make binary PLIST)
+c2j  -i CSV -o JSON [-d DIALECT] [-k KEY] [-m] (minify)
+c2p  -i CSV -o PLIST [-d DIALECT] [-k KEY] [-m] (minify)
+c2x  -i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-S] (simple XML)
+c2y  -i CSV -o YAML [-d DIALECT] [-k KEY] [-m] (minify)
+j2p  -i JSON -o PLIST [-b] (make binary PLIST)
+j2x  -i JSON -o XML [-m] (minify) [-S] (simple XML)
+j2y  -i JSON -o YAML [-m] (minify YAML)
+p2j  -i PLIST -o JSON [-m] (minify) [-b] (keep binary)
+p2x  -i PLIST -o XML [-m] (minify) [-S] (simple XML)
+p2y  -i PLIST -o YAML [-m] (minify YAML)
+x2j  -i XML -o JSON [-m] (minify) [-b] (keep binary)
+x2p  -i XML -o PLIST [-b] (make binary PLIST)
+x2y  -i XML -o YAML [-m] (minify YAML)
+y2j  -i YAML -o JSON [-m] (minify) [-b] (keep binary)
+y2p  -i YAML -o PLIST [-b] (make binary PLIST)
+y2x  -i YAML -o XML [-m] (minify) [-S] (simple XML)
 ```
 
 Also installs direct CLI tools: `json22plist`, `json22yaml`, `plist22json`, `plist22yaml`, `yaml22json`, `yaml22plist` that correspond to the commands. Note that they have `22` rather than `2` in the filenames, so they don’t conflict with other similar (often single-purpose) tools that you may have.
@@ -79,6 +89,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Changelog
 
+- 1.5.0: added CSV reading and XML read/write
 - 1.2.7: removed obsolete plistlib.Data reference
 - 1.2.3: bugfix
 - 1.2.1: added support for orderedattrdict.AttrDict
