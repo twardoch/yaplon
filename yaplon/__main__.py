@@ -426,7 +426,7 @@ def csv2plist(input, output, dialect, header, key, binary, sort):
 
 @cli.command(
     'j2x', context_settings=CONTEXT_SETTINGS,
-    short_help='-i JSON -o XML [-m] (minify) [-S] (simple XML)'
+    short_help='-i JSON -o XML [-m] (minify) [-R roottag] [-t wraptag]'
 )
 @click.version_option(version=VERSION)
 @click.option(
@@ -438,25 +438,25 @@ def csv2plist(input, output, dialect, header, key, binary, sort):
               type=str,
               help="output XML file, stdout if '-' or omitted"
               )
-@click.option('-m', '--mini', 'mini',
-              is_flag=True,
-              help="output minified XML"
-              )
 @click.option('-R', '--root', 'root', default='root',
               type=str,
               help="root XML element if missing"
               )
-@click.option('-S', '--simple', 'simple',
+@click.option('-t', '--tag', 'tag',
+              type=str,
+              help="wrap in tag"
+              )
+@click.option('-m', '--mini', 'mini',
               is_flag=True,
-              help="output simple XML"
+              help="output minified XML"
               )
 @click.option('-s', '--sort', 'sort',
               is_flag=True,
               help="sort data"
               )
-def json2xml(input, output, mini, simple, root, sort):
+def json2xml(input, output, mini, tag, root, sort):
     """
-    -i JSON -o XML [-m] (minify) [-S] (simple XML)
+    -i JSON -o XML [-m] (minify) [-R roottag] [-t wraptag]
     """
     writer.xml(
         reader.json(
@@ -464,7 +464,7 @@ def json2xml(input, output, mini, simple, root, sort):
         ),
         output,
         mini=mini,
-        simple=simple,
+        tag=tag,
         root=root
     )
 
@@ -473,7 +473,7 @@ def json2xml(input, output, mini, simple, root, sort):
 
 @cli.command(
     'p2x', context_settings=CONTEXT_SETTINGS,
-    short_help='-i PLIST -o XML [-m] (minify) [-S] (simple XML)'
+    short_help='-i PLIST -o XML [-m] (minify) [-R roottag] [-t wraptag]'
 )
 @click.version_option(version=VERSION)
 @click.option(
@@ -485,25 +485,25 @@ def json2xml(input, output, mini, simple, root, sort):
               type=click.File('w'),
               help="output XML file, stdout if '-' or omitted"
               )
-@click.option('-m', '--mini', 'mini',
-              is_flag=True,
-              help="output minified XML"
-              )
 @click.option('-R', '--root', 'root', default='root',
               type=str,
               help="root XML element if missing"
               )
-@click.option('-S', '--simple', 'simple',
+@click.option('-t', '--tag', 'tag',
+              type=str,
+              help="wrap in tag"
+              )
+@click.option('-m', '--mini', 'mini',
               is_flag=True,
-              help="output simple XML"
+              help="output minified XML"
               )
 @click.option('-s', '--sort', 'sort',
               is_flag=True,
               help="sort data"
               )
-def plist2xml(input, output, mini, simple, root, sort):
+def plist2xml(input, output, mini, tag, root, sort):
     """
-    -i PLIST -o XML [-m] (minify) [-S] (simple XML)
+    -i PLIST -o XML [-m] (minify) [-R roottag] [-t wraptag]
     """
     writer.xml(
         reader.plist(
@@ -511,7 +511,7 @@ def plist2xml(input, output, mini, simple, root, sort):
         ),
         output,
         mini=mini,
-        simple=simple,
+        tag=tag,
         root=root
     )
 
@@ -520,7 +520,7 @@ def plist2xml(input, output, mini, simple, root, sort):
 
 @cli.command(
     'y2x', context_settings=CONTEXT_SETTINGS,
-    short_help='-i YAML -o XML [-m] (minify) [-S] (simple XML)'
+    short_help='-i YAML -o XML [-m] (minify) [-R roottag] [-t wraptag]'
 )
 @click.version_option(version=VERSION)
 @click.option(
@@ -532,25 +532,25 @@ def plist2xml(input, output, mini, simple, root, sort):
               type=click.File('w'),
               help="output XML file, stdout if '-' or omitted"
               )
-@click.option('-m', '--mini', 'mini',
-              is_flag=True,
-              help="output minified XML"
-              )
 @click.option('-R', '--root', 'root', default='root',
               type=str,
               help="root XML element if missing"
               )
-@click.option('-S', '--simple', 'simple',
+@click.option('-t', '--tag', 'tag',
+              type=str,
+              help="wrap in tag"
+              )
+@click.option('-m', '--mini', 'mini',
               is_flag=True,
-              help="output simple XML"
+              help="output minified XML"
               )
 @click.option('-s', '--sort', 'sort',
               is_flag=True,
               help="sort data"
               )
-def yaml2xml(input, output, mini, simple, root, sort):
+def yaml2xml(input, output, mini, tag, root, sort):
     """
-    -i YAML -o XML [-m] (minify) [-S] (simple XML)
+    -i YAML -o XML [-m] (minify) [-R roottag] [-t wraptag]
     """
     writer.xml(
         reader.yaml(
@@ -558,7 +558,7 @@ def yaml2xml(input, output, mini, simple, root, sort):
         ),
         output,
         mini=mini,
-        simple=simple,
+        tag=tag,
         root=root
     )
 
@@ -567,7 +567,7 @@ def yaml2xml(input, output, mini, simple, root, sort):
 
 @cli.command(
     'c2x', context_settings=CONTEXT_SETTINGS,
-    short_help='-i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-S] (simple XML)'
+    short_help='-i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-R roottag] [-t wraptag]'
 )
 @click.version_option(version=VERSION)
 @click.option(
@@ -595,21 +595,21 @@ def yaml2xml(input, output, mini, simple, root, sort):
               type=str,
               help="root XML element if missing"
               )
+@click.option('-t', '--tag', 'tag',
+              type=str,
+              help="wrap in tag"
+              )
 @click.option('-m', '--mini', 'mini',
               is_flag=True,
               help="output minified XML"
-              )
-@click.option('-S', '--simple', 'simple',
-              is_flag=True,
-              help="output simple XML"
               )
 @click.option('-s', '--sort', 'sort',
               is_flag=True,
               help="sort data"
               )
-def csv2xml(input, output, dialect, header, key, mini, simple, sort):
+def csv2xml(input, output, dialect, header, key, mini, tag, root, sort):
     """
-    -i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-S] (simple XML)
+    -i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-R roottag] [-t wraptag]
     """
     writer.xml(
         reader.csv(
@@ -617,7 +617,7 @@ def csv2xml(input, output, dialect, header, key, mini, simple, sort):
         ),
         output,
         mini=mini,
-        simple=simple,
+        tag=tag,
         root=root
     )
 

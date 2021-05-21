@@ -97,7 +97,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Changelog
 
-- 1.5.1: added CSV reading and XML read/write
+- 1.5.3: added CSV reading and limited XML read/write
 - 1.2.7: removed obsolete plistlib.Data reference
 - 1.2.3: bugfix
 - 1.2.1: added support for orderedattrdict.AttrDict

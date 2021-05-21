@@ -11,7 +11,8 @@ from . import oplist
 from . import oyaml
 import xmltodict as oxml
 import dict2xml
-from collections import OrderedDict
+from collections import OrderedDict, Mapping
+
 
 def json(obj, output, mini=False, binary=False):
     output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
@@ -24,7 +25,7 @@ def plist(obj, output, binary=False):
         output = click.File("w")(output)
         output.write(oplist.plist_dumps(obj))
 
-def _simplexml(obj, output, mini=False):
+def _simplexml(obj, output, mini=False, tag=''):
     if mini:
         indent = ''
         newlines = False
@@ -33,25 +34,28 @@ def _simplexml(obj, output, mini=False):
         newlines = True
     output.write(
         dict2xml.Converter(
-            wrap="", indent=indent, newlines=newlines
+            wrap=tag, indent=indent, newlines=newlines
         ).build(obj)
     )
 
-def xml(obj, output, mini=False, simple=False, header=True, root='root'):
-    if type(obj) == type(list()):
-        obj = OrderedDict([(root, obj)])
-    elif type(obj) == type(dict()):
+def xml(obj, output, mini=False, tag=None, root='root'):
+    # This is extremely primitive and buggy
+    if isinstance(obj, Mapping):
         obj = OrderedDict(obj)
-    if len(obj.keys()) > 1:
+        if len(obj.keys()) > 1:
+            obj = OrderedDict([(root, obj)])
+        else:
+            root=list(obj.keys())[0]
+    else:
         obj = OrderedDict([(root, obj)])
     pretty = not mini
-    if simple:
-        _simplexml(obj, output, mini)
+    if tag:
+        _simplexml(obj, output, mini, tag)
     else:
         try:
-            oxml.unparse(obj, output, full_document=header, short_empty_elements=mini, pretty=pretty)
-        except AttributeError:
-            _simplexml(obj, output, mini)
+            oxml.unparse(obj, output, full_document=True, short_empty_elements=mini, pretty=pretty)
+        except:
+            pass
 
 def yaml(obj, output, mini=False):
     output.write(oyaml.yaml_dumps(obj, compact=mini))
