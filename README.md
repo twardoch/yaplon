@@ -49,7 +49,15 @@ y2p  -i YAML -o PLIST [-b] (make binary PLIST)
 y2x  -i YAML -o XML [-m] (minify) [-S] (simple XML)
 ```
 
-Also installs direct CLI tools: `json22plist`, `json22yaml`, `plist22json`, `plist22yaml`, `yaml22json`, `yaml22plist` that correspond to the commands. Note that they have `22` rather than `2` in the filenames, so they don’t conflict with other similar (often single-purpose) tools that you may have.
+Also installs direct CLI tools that correspond to the commands:
+
+- `csv22json`, `csv22plist`, `csv22xml`, `csv22yaml`,
+- `json22plist`, `json22xml`, `json22yaml`,
+- `plist22json`, `plist22xml`, `plist22yaml`,
+- `xml22json`, `xml22plist`, `xml22yaml`,
+- `yaml22json`, `yaml22plist`, `yaml22xml`
+
+Note that they have `22` rather than `2` in the filenames, so they don’t conflict with other similar (often single-purpose) tools that you may have.
 
 ## Examples
 
@@ -89,7 +97,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Changelog
 
-- 1.5.0: added CSV reading and XML read/write
+- 1.5.1: added CSV reading and XML read/write
 - 1.2.7: removed obsolete plistlib.Data reference
 - 1.2.3: bugfix
 - 1.2.1: added support for orderedattrdict.AttrDict
