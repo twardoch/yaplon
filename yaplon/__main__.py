@@ -19,8 +19,6 @@ from . import __version__
 from . import reader
 from . import writer
 
-from collections import OrderedDict
-
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 VERSION = __version__
@@ -745,6 +743,7 @@ def xml2json(input, output, namespaces, mini, sort):
         output,
         mini=mini
     )
+
 
 
 if __name__ == '__main__':

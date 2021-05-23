@@ -5,21 +5,18 @@
 
 __version__ = '0.0.1'
 
-from . import ojson
-from . import oplist
-from . import oyaml
+from yaplon import ojson
+from yaplon import oplist
+from yaplon import oyaml
 import xmltodict as oxml
 import csv as ocsv
 
 from collections import OrderedDict
 
-def sortOD(od):
+def sort_ordereddict(od):
     res = OrderedDict()
     for k, v in sorted(od.items()):
-        if isinstance(v, dict):
-            res[k] = sortOD(v)
-        else:
-            res[k] = v
+        res[k] = sort_ordereddict(v) if isinstance(v, dict) else v
     return res
 
 def csv(input, dialect=None, header=True, key=None, sort=False):
@@ -36,11 +33,8 @@ def csv(input, dialect=None, header=True, key=None, sort=False):
         header = True
     if header:
         fields = next(reader)
-        if key:
-            if key <= len(fields):
-                obj = OrderedDict()
-            else:
-                key = None
+        if key and key <= len(fields):
+            obj = OrderedDict()
         else:
             key = None
     for row in reader:
@@ -54,29 +48,29 @@ def csv(input, dialect=None, header=True, key=None, sort=False):
         else:
             obj.append(row)
     if sort:
-        obj = sortOD(obj)
+        obj = sort_ordereddict(obj)
     return obj
 
 def json(input, sort=False):
     obj = ojson.read_json(input)
     if sort:
-        obj = sortOD(obj)
+        obj = sort_ordereddict(obj)
     return obj
 
 def plist(input, sort=False):
     obj = oplist.read_plist(input)
     if sort:
-        obj = sortOD(obj)
+        obj = sort_ordereddict(obj)
     return obj
 
 def xml(input, namespaces=False, sort=False):
     obj = oxml.parse(input.read(), process_namespaces=namespaces)
     if sort:
-        obj = sortOD(obj)
+        obj = sort_ordereddict(obj)
     return obj
 
 def yaml(input, sort=False):
     obj = oyaml.read_yaml(input)
     if sort:
-        obj = sortOD(obj)
+        obj = sort_ordereddict(obj)
     return obj

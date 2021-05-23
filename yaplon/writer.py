@@ -6,9 +6,9 @@
 __version__ = '0.0.1'
 
 import click
-from . import ojson
-from . import oplist
-from . import oyaml
+from yaplon import ojson
+from yaplon import oplist
+from yaplon import oyaml
 import xmltodict as oxml
 import dict2xml
 from collections import OrderedDict, Mapping
@@ -48,10 +48,10 @@ def xml(obj, output, mini=False, tag=None, root='root'):
             root=list(obj.keys())[0]
     else:
         obj = OrderedDict([(root, obj)])
-    pretty = not mini
     if tag:
         _simplexml(obj, output, mini, tag)
     else:
+        pretty = not mini
         try:
             oxml.unparse(obj, output, full_document=True, short_empty_elements=mini, pretty=pretty)
         except:
