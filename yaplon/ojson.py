@@ -5,10 +5,8 @@ Licensed under MIT
 Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
 
-import base64
 import collections
 import json
-import plistlib
 
 __all__ = ("read_json", "json_dumps")
 
@@ -22,19 +20,21 @@ def json_dumps(obj, preserve_binary=False, compact=False):
         indent = 4
         separators = (',', ': ')
 
-    return json.dumps(
+    return json.dump(
         json_convert_to(obj, preserve_binary),
         ensure_ascii=False,
         sort_keys=False,
         indent=indent,
         separators=separators
-    ).encode('utf-8').decode('raw_unicode_escape')
+    )
 
 
 def read_json(stream):
     return json_convert_from(
-        json.load(stream, object_pairs_hook=collections.OrderedDict
-                  )
+        json.load(
+            stream,
+            object_pairs_hook=collections.OrderedDict
+        )
     )
 
 
@@ -49,14 +49,6 @@ def json_convert_to(obj, preserve_binary=False):
         for v in obj:
             obj[count] = json_convert_to(v, preserve_binary)
             count += 1
-    # elif isinstance(obj, plistlib.Data):
-    #    if preserve_binary:
-    #        obj = collections.OrderedDict(
-    #            [("!!python/object:plistlib.Data",
-    #              base64.b64encode(obj.data).decode("ascii"))]
-    #        )
-    #    else:
-    #        obj = base64.b64encode(obj.data).decode("ascii")
 
     return obj
 
