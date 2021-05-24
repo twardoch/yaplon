@@ -15,7 +15,7 @@ from yaplon import oyaml
 
 
 def json(obj, output, mini=False, binary=False):
-    output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
+    ojson.json_dump(obj, output, preserve_binary=binary, compact=mini)
 
 
 def plist(obj, output, binary=False):

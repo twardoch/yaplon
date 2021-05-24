@@ -97,7 +97,7 @@ $ yaplon p2j -m -i input.plist
 
 ## Changelog
 
-- 1.5.6: switched to Unicode output in JSON, refactoring
+- 1.5.7: switched to Unicode output in JSON, refactoring
 - 1.5.3: added CSV reading and limited XML read/write
 - 1.2.7: removed obsolete plistlib.Data reference
 - 1.2.3: bugfix

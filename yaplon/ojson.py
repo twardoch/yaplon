@@ -11,8 +11,8 @@ import json
 __all__ = ("read_json", "json_dumps")
 
 
-def json_dumps(obj, preserve_binary=False, compact=False):
-    """Wrap json dumps."""
+def json_dump(obj, stream, preserve_binary=False, compact=False):
+    """Wrap json dump."""
     if compact:
         indent = None
         separators = (',', ':')
@@ -22,11 +22,29 @@ def json_dumps(obj, preserve_binary=False, compact=False):
 
     return json.dump(
         json_convert_to(obj, preserve_binary),
+        stream,
         ensure_ascii=False,
         sort_keys=False,
         indent=indent,
         separators=separators
     )
+
+def json_dumps(obj, preserve_binary=False, compact=False):
+    """Wrap json dumps."""
+    if compact:
+        indent = None
+        separators = (',', ':')
+    else:
+        indent = 4
+        separators = (',', ': ')
+
+    return json.dumps(
+        json_convert_to(obj, preserve_binary),
+        ensure_ascii=False,
+        sort_keys=False,
+        indent=indent,
+        separators=separators
+    ).encode('utf-8').decode('raw_unicode_escape')
 
 
 def read_json(stream):
