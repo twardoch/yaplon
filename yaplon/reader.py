@@ -3,21 +3,22 @@
 """
 """
 
-__version__ = '0.0.1'
+import csv as ocsv
+from collections import OrderedDict
+
+import xmltodict as oxml
 
 from yaplon import ojson
 from yaplon import oplist
 from yaplon import oyaml
-import xmltodict as oxml
-import csv as ocsv
 
-from collections import OrderedDict
 
 def sort_ordereddict(od):
     res = OrderedDict()
     for k, v in sorted(od.items()):
         res[k] = sort_ordereddict(v) if isinstance(v, dict) else v
     return res
+
 
 def csv(input, dialect=None, header=True, key=None, sort=False):
     obj = []
@@ -51,11 +52,13 @@ def csv(input, dialect=None, header=True, key=None, sort=False):
         obj = sort_ordereddict(obj)
     return obj
 
+
 def json(input, sort=False):
     obj = ojson.read_json(input)
     if sort:
         obj = sort_ordereddict(obj)
     return obj
+
 
 def plist(input, sort=False):
     obj = oplist.read_plist(input)
@@ -63,11 +66,13 @@ def plist(input, sort=False):
         obj = sort_ordereddict(obj)
     return obj
 
+
 def xml(input, namespaces=False, sort=False):
     obj = oxml.parse(input.read(), process_namespaces=namespaces)
     if sort:
         obj = sort_ordereddict(obj)
     return obj
+
 
 def yaml(input, sort=False):
     obj = oyaml.read_yaml(input)

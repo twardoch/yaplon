@@ -4,10 +4,11 @@ Serialized Data Converter.
 Licensed under MIT
 Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
-import plistlib
-import datetime
-import re
+
 import collections
+import datetime
+import plistlib
+import re
 
 __all__ = ("read_plist", "plist_dumps", "plist_binary_dumps")
 

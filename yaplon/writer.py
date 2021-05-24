@@ -3,19 +3,20 @@
 """
 """
 
-__version__ = '0.0.1'
+from collections import Mapping, OrderedDict
 
 import click
+import dict2xml
+import xmltodict as oxml
+
 from yaplon import ojson
 from yaplon import oplist
 from yaplon import oyaml
-import xmltodict as oxml
-import dict2xml
-from collections import OrderedDict, Mapping
 
 
 def json(obj, output, mini=False, binary=False):
     output.write(ojson.json_dumps(obj, preserve_binary=binary, compact=mini))
+
 
 def plist(obj, output, binary=False):
     if binary:
@@ -24,6 +25,7 @@ def plist(obj, output, binary=False):
     else:
         output = click.File("w")(output)
         output.write(oplist.plist_dumps(obj))
+
 
 def _simplexml(obj, output, mini=False, tag=''):
     if mini:
@@ -38,6 +40,7 @@ def _simplexml(obj, output, mini=False, tag=''):
         ).build(obj)
     )
 
+
 def xml(obj, output, mini=False, tag=None, root='root'):
     # This is extremely primitive and buggy
     if isinstance(obj, Mapping):
@@ -45,7 +48,7 @@ def xml(obj, output, mini=False, tag=None, root='root'):
         if len(obj.keys()) > 1:
             obj = OrderedDict([(root, obj)])
         else:
-            root=list(obj.keys())[0]
+            root = list(obj.keys())[0]
     else:
         obj = OrderedDict([(root, obj)])
     if tag:
@@ -57,7 +60,6 @@ def xml(obj, output, mini=False, tag=None, root='root'):
         except:
             pass
 
+
 def yaml(obj, output, mini=False):
     output.write(oyaml.yaml_dumps(obj, compact=mini))
-
-

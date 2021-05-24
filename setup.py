@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from setuptools import setup, find_packages
-
 import os
 import re
+
+from setuptools import find_packages, setup
 
 NAME = 'yaplon'
 
 readme_file = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), 'README.md')
-try:
-    from m2r import parse_from_file
-    readme = parse_from_file(readme_file)
-except ImportError:
-    # m2r may not be installed in user environment
-    with open(readme_file) as f:
-        readme = f.read()
+with open(readme_file) as f:
+    readme = f.read()
 
 
 def get_version(*args):
@@ -25,8 +20,7 @@ def get_version(*args):
     mo = re.search(VSRE, verstrline, re.M)
     if mo:
         return mo.group(1)
-    else:
-        return "undefined"
+    return "undefined"
 
 
 def get_requirements(*args):
@@ -60,7 +54,7 @@ setup(
     license="MIT",
     description="Python 3-based commandline converter CSV → YAML ↔ JSON ↔ PLIST ↔ XML",
     long_description=readme,
-    long_description_content_type='text/x-rst',
+    long_description_content_type='text/markdown',
     python_requires='>=3.9',
     install_requires=get_requirements('requirements.txt'),
     extras_require={
@@ -70,7 +64,6 @@ setup(
             'pip',
             'twine>=3.2.0',
             'pyinstaller>=4.0',
-            'm2r>=0.2.1'
         ]
     },
     packages=find_packages(),

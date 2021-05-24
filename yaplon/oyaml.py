@@ -4,11 +4,13 @@ Serialized Data Converter.
 Licensed under MIT
 Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
+
 import datetime
-import yaml
 import plistlib
-from collections import OrderedDict
 import re
+from collections import OrderedDict
+
+import yaml
 from orderedattrdict import AttrDict
 
 __all__ = ("read_yaml", "yaml_dumps")
@@ -58,12 +60,12 @@ def read_yaml(stream, loader=yaml.Loader):
             timestamp = str(timestamp)
         else:
             timestamp = '%(year)04d-%(month)02d-%(day)02dT%(hour)02d:%(minute)02d:%(second)02d%(microsecond)sZ' % {
-                "year": timestamp.year,
-                "month": timestamp.month,
-                "day": timestamp.day,
-                "hour": timestamp.hour,
-                "minute": timestamp.minute,
-                "second": timestamp.second,
+                "year"       : timestamp.year,
+                "month"      : timestamp.month,
+                "day"        : timestamp.day,
+                "hour"       : timestamp.hour,
+                "minute"     : timestamp.minute,
+                "second"     : timestamp.second,
                 "microsecond": ".%06d" % timestamp.microsecond if timestamp.microsecond != 0 else ""
             }
         return timestamp
@@ -102,7 +104,7 @@ def read_yaml(stream, loader=yaml.Loader):
 
 
 def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180,
-              quote_strings=False, block_strings=False, double_quote=False,  **kwargs):
+              quote_strings=False, block_strings=False, double_quote=False, **kwargs):
     if not width:
         width = float("inf")
     """Special dumper wrapper to modify the yaml dumper."""
@@ -168,10 +170,10 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180,
     # )
 
     # Handle binary data
-    #Dumper.add_representer(
+    # Dumper.add_representer(
     #    plistlib.Data,
     #    lambda self, data: self.represent_binary(data.data)
-    #)
+    # )
 
     # Handle Ordered Dict
     Dumper.add_representer(
@@ -187,7 +189,14 @@ def yaml_dump(data, stream=None, dumper=yaml.Dumper, width=180,
             'tag:yaml.org,2002:map', data.items())
     )
 
-    return yaml.dump(data, stream, Dumper, width=width, allow_unicode=True, **kwargs)
+    return yaml.dump(
+        data,
+        stream,
+        Dumper,
+        width=width,
+        allow_unicode=True,
+        **kwargs
+    )
 
 
 def convert_timestamp(obj):
@@ -246,8 +255,8 @@ def yaml_convert_to(obj, strip_tabs=False, detect_timestamp=False):
             obj[count] = yaml_convert_to(v, strip_tabs, detect_timestamp)
             count += 1
     elif isinstance(obj, str):
+        converted = False
         if detect_timestamp:
-            converted = False
             time_stamp = convert_timestamp(obj)
             if time_stamp is not None:
                 obj = time_stamp
@@ -264,15 +273,10 @@ def yaml_dumps(obj, compact=False, detect_timestamp=False, width=180,
     """Wrapper for yaml dump."""
     if compact:
         default_flow_style = True
-        canonical = False
         indent = 0
-        strip_tabs = False
     else:
         default_flow_style = False
-        canonical = True
-        indent = indent
-        strip_tabs = False
-
+    strip_tabs = False
     return yaml_dump(
         yaml_convert_to(obj, strip_tabs, detect_timestamp),
         width=width,

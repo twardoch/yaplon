@@ -4,11 +4,11 @@ Serialized Data Converter.
 Licensed under MIT
 Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
-import json
-import plistlib
+
 import base64
 import collections
-from .file_strip.json import sanitize_json
+import json
+import plistlib
 
 __all__ = ("read_json", "json_dumps")
 
@@ -23,7 +23,11 @@ def json_dumps(obj, preserve_binary=False, compact=False):
         separators = (',', ': ')
 
     return json.dumps(
-        json_convert_to(obj, preserve_binary), sort_keys=False, indent=indent, separators=separators
+        json_convert_to(obj, preserve_binary),
+        ensure_ascii=False,
+        sort_keys=False,
+        indent=indent,
+        separators=separators
     ).encode('utf-8').decode('raw_unicode_escape')
 
 
@@ -45,7 +49,7 @@ def json_convert_to(obj, preserve_binary=False):
         for v in obj:
             obj[count] = json_convert_to(v, preserve_binary)
             count += 1
-    #elif isinstance(obj, plistlib.Data):
+    # elif isinstance(obj, plistlib.Data):
     #    if preserve_binary:
     #        obj = collections.OrderedDict(
     #            [("!!python/object:plistlib.Data",
@@ -62,11 +66,7 @@ def json_convert_from(obj):
 
     if isinstance(obj, (dict, collections.OrderedDict)):
         if len(obj) == 1 and "!!python/object:plistlib.Data" in obj:
-            try:
-                obj = plistlib.Data(base64.decodebytes(
-                    obj["!!python/object:plistlib.Data"].encode('ascii')))
-            except Exception:
-                obj = obj["!!python/object:plistlib.Data"]
+            obj = obj["!!python/object:plistlib.Data"]
         else:
             for k, v in obj.items():
                 obj[k] = json_convert_from(v)

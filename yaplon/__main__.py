@@ -15,13 +15,15 @@
 """
 
 import click
-from . import __version__
-from . import reader
-from . import writer
+
+from yaplon import __version__
+from yaplon import reader
+from yaplon import writer
 
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 VERSION = __version__
+
 
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.version_option(version=VERSION)
@@ -36,18 +38,19 @@ def cli():
     Type 'yaplon command --help' for more info on each conversion command.
     """
 
+
 # json22plist
 
 @cli.command(
     'j2p', context_settings=CONTEXT_SETTINGS,
     short_help='-i JSON -o PLIST [-b] (make binary PLIST)'
-    )
+)
 @click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
     help="input JSON file, stdin if '-' or omitted"
-    )
+)
 @click.option('-o', '--out', 'output', default='-',
               type=str,
               help="output PLIST file, stdout if '-' or omitted"
@@ -79,13 +82,13 @@ def json2plist(input, output, binary, sort):
 @cli.command(
     'j2y', context_settings=CONTEXT_SETTINGS,
     short_help='-i JSON -o YAML [-m] (minify YAML)'
-    )
+)
 @click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
     help="input JSON file, stdin if '-' or omitted"
-    )
+)
 @click.option('-o', '--out', 'output', default='-',
               type=click.File('w'),
               help="output YAML file, stdout if '-' or omitted"
@@ -117,13 +120,13 @@ def json2yaml(input, output, mini, sort):
 @cli.command(
     'p2j', context_settings=CONTEXT_SETTINGS,
     short_help='-i PLIST -o JSON [-m] (minify) [-b] (keep binary)'
-    )
+)
 @click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('rb'),
     help="input PLIST file, stdin if '-' or omitted"
-    )
+)
 @click.option('-b', '--bin', 'binary',
               is_flag=True,
               help="preserve binary in JSON"
@@ -160,13 +163,13 @@ def plist2json(input, output, mini, binary, sort):
 @cli.command(
     'p2y', context_settings=CONTEXT_SETTINGS,
     short_help='-i PLIST -o YAML [-m] (minify YAML)'
-    )
+)
 @click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('rb'),
     help="input PLIST file, stdin if '-' or omitted"
-    )
+)
 @click.option('-o', '--out', 'output', default='-',
               type=click.File('w'),
               help="output YAML file, stdout if '-' or omitted"
@@ -198,13 +201,13 @@ def plist2yaml(input, output, mini, sort):
 @cli.command(
     'y2j', context_settings=CONTEXT_SETTINGS,
     short_help='-i YAML -o JSON [-m] (minify) [-b] (keep binary)'
-    )
+)
 @click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
     help="input YAML file, stdin if '-' or omitted"
-    )
+)
 @click.option('-b', '--bin', 'binary',
               is_flag=True,
               help="preserve binary in JSON"
@@ -234,19 +237,20 @@ def yaml2json(input, output, mini, binary, sort):
         binary=binary
     )
 
+
 # yaml22plist
 
 
 @cli.command(
     'y2p', context_settings=CONTEXT_SETTINGS,
     short_help='-i YAML -o PLIST [-b] (make binary PLIST)'
-    )
+)
 @click.version_option(version=VERSION)
 @click.option(
     '-i', '--in', 'input', default='-',
     type=click.File('r'),
     help="input YAML file, stdin if '-' or omitted"
-    )
+)
 @click.option('-o', '--out', 'output', default='-',
               type=str,
               help="output PLIST file, stdout if '-' or omitted"
@@ -272,7 +276,6 @@ def yaml2plist(input, output, binary, sort):
     )
 
 
-
 # csv22json
 
 @cli.command(
@@ -281,9 +284,9 @@ def yaml2plist(input, output, binary, sort):
 )
 @click.version_option(version=VERSION)
 @click.option(
-            '-i', '--in', 'input', default='-',
-            type=click.File('r'),
-            help="input CSV file, stdin if '-' or omitted"
+    '-i', '--in', 'input', default='-',
+    type=click.File('r'),
+    help="input CSV file, stdin if '-' or omitted"
 )
 @click.option('-H', '--header', 'header',
               is_flag=True,
@@ -743,7 +746,6 @@ def xml2json(input, output, namespaces, mini, sort):
         output,
         mini=mini
     )
-
 
 
 if __name__ == '__main__':
