@@ -3,7 +3,12 @@
 """
 """
 
-from collections import Mapping, OrderedDict
+try:
+    from collections import Mapping
+except ImportError:
+    from collections.abc import Mapping
+
+from collections import OrderedDict
 
 import click
 import dict2xml
