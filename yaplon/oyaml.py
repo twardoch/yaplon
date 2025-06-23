@@ -381,10 +381,7 @@ def yaml_dumps(
         # PyYAML's default indent for block style is 2. For flow, it's more about spacing.
         # Explicitly setting indent for yaml_dump if compact, but usually it's 0 or small.
         # Let yaml_dump handle its default logic based on default_flow_style.
-        if indent is None: # Only set if not explicitly passed
-             dump_kwargs['indent'] = 0
-        else:
-             dump_kwargs['indent'] = indent
+        dump_kwargs['indent'] = 0 if indent is None else indent
     elif indent is not None: # Not compact, but indent is specified
         dump_kwargs['indent'] = indent
     # If not compact and indent is None, yaml_dump will use PyYAML's default.
