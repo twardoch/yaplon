@@ -151,6 +151,33 @@ def test_p2j_cli_xml_input_minified():
     assert stderr == ""
     assert_json_strings_equal(output_content, EXPECTED_JSON_MINIFIED)
 
+SAMPLE_PLIST_XML_WITH_NULL = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>foo</key>
+    <string>bar</string>
+    <key>none_value</key>
+    <null/>
+</dict>
+</plist>
+"""
+
+EXPECTED_JSON_WITH_NULL = '''{
+  "foo": "bar",
+  "none_value": null
+}'''
+
+def test_p2j_cli_xml_input_with_null():
+    output_content, stderr = run_yaplon_command(
+        ["p2j"],
+        input_content=SAMPLE_PLIST_XML_WITH_NULL,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_WITH_NULL)
+
 def test_p2j_cli_xml_input_preserve_binary():
     output_content, stderr = run_yaplon_command(
         ["p2j", "-b"],
