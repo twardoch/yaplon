@@ -4,11 +4,14 @@ File Strip.
 Licensed under MIT
 Copyright (c) 2012 Isaac Muse <isaacmuse@gmail.com>
 """
-import re
 
-LINE_PRESERVE = re.compile(r"\r?\n", re.MULTILINE)
-CPP_PATTERN = re.compile(
-    r'''(?x)
+import re
+from re import Match, Pattern # UP035
+from typing import Callable, ClassVar # List removed
+
+LINE_PRESERVE: Pattern[str] = re.compile(r"\r?\n", re.MULTILINE)
+CPP_PATTERN: Pattern[str] = re.compile(
+    r"""(?x)
         (?P<comments>
             /\*[^*]*\*+(?:[^/*][^*]*\*+)*/  # multi-line comments
           | \s*//(?:[^\r\n])*               # single line comments
@@ -18,11 +21,11 @@ CPP_PATTERN = re.compile(
           | '(?:\\.|[^'\\])*'               # single quotes
           | .[^/"']*                        # everything else
         )
-    ''',
-    re.DOTALL
+    """,
+    re.DOTALL,
 )
-PY_PATTERN = re.compile(
-    r'''(?x)
+PY_PATTERN: Pattern[str] = re.compile(
+    r"""(?x)
         (?P<comments>
             \s*\#(?:[^\r\n])*               # single line comments
         )
@@ -33,97 +36,66 @@ PY_PATTERN = re.compile(
           | '(?:\\.|[^'])*'                 # single quotes
           | .[^\#"']*                       # everything else
         )
-    ''',
-    re.DOTALL
+    """,
+    re.DOTALL,
 )
 
 
-def _strip_regex(pattern, text, preserve_lines):
+def _strip_regex(pattern: Pattern[str], text: str, preserve_lines: bool) -> str:
     """Generic function that strips out comments pased on the given pattern."""
 
-    def remove_comments(group, preserve_lines=False):
+    def remove_comments(group: str, preserve_lines_eval: bool = False) -> str:
         """Remove comments."""
+        return "".join(LINE_PRESERVE.findall(group)) if preserve_lines_eval else ""
 
-        return ''.join([x[0] for x in LINE_PRESERVE.findall(group)]) if preserve_lines else ''
-
-    def evaluate(m, preserve_lines):
+    def evaluate(m: Match[str], preserve_lines_eval: bool) -> str:
         """Search for comments."""
-
         g = m.groupdict()
-        return g["code"] if g["code"] is not None else remove_comments(g["comments"], preserve_lines)
+        return (
+            g["code"]
+            if g["code"] is not None
+            else remove_comments(g["comments"], preserve_lines_eval)
+        )
 
-    return ''.join(map(lambda m: evaluate(m, preserve_lines), pattern.finditer(text)))
+    return "".join(evaluate(m, preserve_lines) for m in pattern.finditer(text))
 
 
-@staticmethod
-def _cpp(text, preserve_lines=False):
+def _cpp_stripper(text: str, preserve_lines: bool = False) -> str:
     """C/C++ style comment stripper."""
-
-    return _strip_regex(
-        CPP_PATTERN,
-        text,
-        preserve_lines
-    )
+    return _strip_regex(CPP_PATTERN, text, preserve_lines)
 
 
-@staticmethod
-def _python(text, preserve_lines=False):
+def _python_stripper(text: str, preserve_lines: bool = False) -> str:
     """Python style comment stripper."""
-
-    return _strip_regex(
-        PY_PATTERN,
-        text,
-        preserve_lines
-    )
+    return _strip_regex(PY_PATTERN, text, preserve_lines)
 
 
-class CommentException(Exception):
-    """Comment exception."""
-
-    def __init__(self, value):
-        """Setup exception."""
-
-        self.value = value
-
-    def __str__(self):
-        """Return exception value repr on string convert."""
-
-        return repr(self.value)
-
-
-class Comments(object):
+class Comments:
     """Comment strip class."""
 
-    styles = []
+    styles: ClassVar[list[str]] = [] # UP006
+    _style_callers: ClassVar[dict[str, Callable[[str, bool], str]]] = {}
 
-    def __init__(self, style=None, preserve_lines=False):
+    def __init__(self, style: str, preserve_lines: bool = False):
         """Initialize."""
-
         self.preserve_lines = preserve_lines
-        self.call = self.__get_style(style)
+        if style not in self.styles:
+            raise ValueError(f"Unknown style: {style}")
+        self.call: Callable[[str, bool], str] = self._style_callers[style]
 
     @classmethod
-    def add_style(cls, style, fn):
+    def add_style(cls, style: str, fn: Callable[[str, bool], str]) -> None:
         """Add comment style."""
-
-        if style not in cls.__dict__:
-            setattr(cls, style, fn)
+        if style not in cls._style_callers:
+            cls._style_callers[style] = fn
             cls.styles.append(style)
 
-    def __get_style(self, style):
-        """Get the comment style."""
-
-        if style in self.styles:
-            return getattr(self, style)
-        else:
-            raise CommentException(style)
-
-    def strip(self, text):
+    def strip(self, text: str) -> str:
         """Strip comments."""
-
         return self.call(text, self.preserve_lines)
 
-Comments.add_style("c", _cpp)
-Comments.add_style("json", _cpp)
-Comments.add_style("cpp", _cpp)
-Comments.add_style("python", _python)
+
+Comments.add_style("c", _cpp_stripper)
+Comments.add_style("json", _cpp_stripper)
+Comments.add_style("cpp", _cpp_stripper)
+Comments.add_style("python", _python_stripper)

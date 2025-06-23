@@ -1,8 +1,3 @@
-.mypy_cache/
-.idea/
-
-*.code-workspace
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -45,12 +40,13 @@ htmlcov/
 .tox/
 .coverage
 .coverage.*
-.cache
+.cache/
 nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 
 # Translations
 *.mo
@@ -88,7 +84,7 @@ celerybeat-schedule
 
 # Environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
@@ -103,7 +99,22 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-/site
+/site/
 
 # mypy
 .mypy_cache/
+
+# Hatch
+.hatch_build/
+
+# IDEs and OS specific
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts
+*.whl
+*.tar.gz
+*.sdist

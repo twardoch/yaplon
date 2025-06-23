@@ -1,5 +1,0 @@
-click>=7.1.2
-orderedattrdict>=1.6.0
-xmltodict>=0.12.0
-dict2xml>=1.7.0
-PyYAML>=5.4.1

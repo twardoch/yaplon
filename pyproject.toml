@@ -1,0 +1,127 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yaplon"
+dynamic = ["version"]
+description = "Python 3-based commandline converter CSV → YAML ↔ JSON ↔ PLIST ↔ XML"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    { name = "Adam Twardoch", email = "adam+github@twardoch.com" },
+]
+keywords = ["yaml", "json", "plist", "csv", "xml", "convert", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "click>=7.1.2",
+    "orderedattrdict>=1.6.0",
+    "xmltodict>=0.12.0",
+    "dict2xml>=1.7.0",
+    "PyYAML>=5.4.1",
+]
+
+[project.urls]
+Homepage = "https://twardoch.github.io/yaplon/"
+"Source Code" = "https://github.com/twardoch/yaplon/"
+
+[project.scripts]
+yaplon = "yaplon.__main__:cli"
+csv2json = "yaplon.__main__:csv2json"
+csv2plist = "yaplon.__main__:csv2plist"
+csv2xml = "yaplon.__main__:csv2xml"
+csv2yaml = "yaplon.__main__:csv2yaml"
+json2plist = "yaplon.__main__:json2plist"
+json2xml = "yaplon.__main__:json2xml"
+json2yaml = "yaplon.__main__:json2yaml"
+plist2json = "yaplon.__main__:plist2json"
+plist2xml = "yaplon.__main__:plist2xml"
+plist2yaml = "yaplon.__main__:plist2yaml"
+xml2json = "yaplon.__main__:xml2json"
+xml2plist = "yaplon.__main__:xml2plist"
+xml2yaml = "yaplon.__main__:xml2yaml"
+yaml2json = "yaplon.__main__:yaml2json"
+yaml2plist = "yaplon.__main__:yaml2plist"
+yaml2xml = "yaplon.__main__:yaml2xml"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.envs.default]
+dependencies = [
+    "pytest",
+    "pytest-cov",
+    "mypy",
+    "ruff",
+    "pre-commit",
+]
+[tool.hatch.envs.default.scripts]
+test = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=yaplon --cov-report=html"
+lint = "ruff check ."
+format = "ruff format ."
+typecheck = "mypy ."
+check = [
+  "lint",
+  "format",
+  "typecheck",
+  "test",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "A", "C4", "SIM", "ARG", "RUF"]
+ignore = ["B905"] # `zip()` without `strict=True`
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true # For now, until all dependencies have stubs or types
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
+[tool.coverage.run]
+source = ["yaplon"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 70 # Start with a reasonable target
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.github",
+  "/docs",
+  "/tests",
+  "/.DS_Store",
+  "/*.sh"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["yaplon"]
+include = ["/yaplon"]
+exclude = [
+  "/.github",
+  "/docs",
+  "/tests",
+  "/.DS_Store",
+  "/*.sh"
+]
