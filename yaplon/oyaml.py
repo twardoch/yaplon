@@ -332,10 +332,7 @@ def yaml_convert_to(obj, strip_tabs=False, detect_timestamp=False):
             if time_stamp is not None:
                 return time_stamp
         # Fallthrough if not a detected timestamp or detect_timestamp is False
-        if strip_tabs:
-            return obj.replace("\t", "    ").rstrip(" ")
-        return obj
-
+        return obj.replace("\t", "    ").rstrip(" ") if strip_tabs else obj
     return obj
 
 
