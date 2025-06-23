@@ -1,9 +1,9 @@
 # yaplon
 
-Convert between JSON, YAML and PLIST (binary and XML) in the commandline.
-Can be used in piping. Written in Python 3.9 (not 2.7 compatible).
+Convert between JSON, YAML, PLIST (binary and XML), XML, and CSV (read-only for CSV input) in the commandline.
+Can be used in piping. Requires Python 3.9+.
 
-- Copyright (c) 2021 Adam Twardoch <adam+github@twardoch.com>
+- Copyright (c) 2021-2024 Adam Twardoch <adam+github@twardoch.com> & Jules (AI Agent)
 - Copyright (c) 2012-2015 Isaac Muse <isaacmuse@gmail.com>
 - [MIT license](./LICENSE)
 - Based on [Serialized Data Converter for Sublime Text](https://github.com/facelessuser/SerializedDataConverter)
@@ -22,6 +22,17 @@ pip3 install --user --upgrade yaplon
 pip3 install --user --upgrade git+https://github.com/twardoch/yaplon
 ```
 
+Or for development:
+```bash
+git clone https://github.com/twardoch/yaplon.git
+cd yaplon
+# Recommended: create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate # On macOS/Linux
+# venv\Scripts\activate # On Windows
+pip install -e .[dev]
+```
+
 ## Usage
 
 ```
@@ -31,23 +42,39 @@ yaplon [c|j|p|x|y]2[j|p|x|y] -i input -o output [options]
 ### Commands:
 
 ```
-c2j  -i CSV -o JSON [-d DIALECT] [-k KEY] [-m] (minify)
-c2p  -i CSV -o PLIST [-d DIALECT] [-k KEY] [-m] (minify)
-c2x  -i CSV -o XML [-d DIALECT] [-k KEY] [-m] (minify) [-S] (simple XML)
-c2y  -i CSV -o YAML [-d DIALECT] [-k KEY] [-m] (minify)
-j2p  -i JSON -o PLIST [-b] (make binary PLIST)
-j2x  -i JSON -o XML [-m] (minify) [-S] (simple XML)
-j2y  -i JSON -o YAML [-m] (minify YAML)
-p2j  -i PLIST -o JSON [-m] (minify) [-b] (keep binary)
-p2x  -i PLIST -o XML [-m] (minify) [-S] (simple XML)
-p2y  -i PLIST -o YAML [-m] (minify YAML)
-x2j  -i XML -o JSON [-m] (minify) [-b] (keep binary)
-x2p  -i XML -o PLIST [-b] (make binary PLIST)
-x2y  -i XML -o YAML [-m] (minify YAML)
-y2j  -i YAML -o JSON [-m] (minify) [-b] (keep binary)
-y2p  -i YAML -o PLIST [-b] (make binary PLIST)
-y2x  -i YAML -o XML [-m] (minify) [-S] (simple XML)
+c2j  -i CSV -o JSON [-H] [-d DIALECT] [-k KEY] [-s] [-m]
+c2p  -i CSV -o PLIST [-H] [-d DIALECT] [-k KEY] [-s] [-b]
+c2x  -i CSV -o XML [-H] [-d DIALECT] [-k KEY] [-s] [-m] [-R ROOT] [-t TAG]
+c2y  -i CSV -o YAML [-H] [-d DIALECT] [-k KEY] [-s] [-m]
+j2p  -i JSON -o PLIST [-s] [-b]
+j2x  -i JSON -o XML [-s] [-m] [-R ROOT] [-t TAG]
+j2y  -i JSON -o YAML [-s] [-m]
+p2j  -i PLIST -o JSON [-s] [-m] [-b] (binary in JSON)
+p2x  -i PLIST -o XML [-s] [-m] [-R ROOT] [-t TAG]
+p2y  -i PLIST -o YAML [-s] [-m]
+x2j  -i XML -o JSON [-N] [-s] [-m]
+x2p  -i XML -o PLIST [-N] [-s] [-b]
+x2y  -i XML -o YAML [-N] [-s] [-m]
+y2j  -i YAML -o JSON [-s] [-m] [-b] (binary in JSON)
+y2p  -i YAML -o PLIST [-s] [-b]
+y2x  -i YAML -o XML [-s] [-m] [-R ROOT] [-t TAG]
 ```
+**General Options:**
+- `-i <input_file>`: Input file (defaults to stdin if omitted or '-')
+- `-o <output_file>`: Output file (defaults to stdout if omitted or '-')
+- `-s, --sort`: Sort data before conversion (e.g., dictionary keys).
+- `-m, --mini`: Minify output (specific to format, e.g., no indents in JSON/XML, flow style in YAML).
+
+**Format-Specific Options:**
+- `-b, --bin`:
+    - For `*2p` (to Plist): Output binary Plist.
+    - For `*2j` (to JSON from Plist/YAML/XML): Preserve binary data (e.g., from Plist `<data>` or YAML `!!binary`) as a base64 encoded string in JSON, instead of the default special dictionary representation `{"__bytes__": true, "base64": "..."}`.
+- `-R <name>, --root <name>`: (for `*2x` - to XML) Specify root tag name if input data is a list or if overriding the default 'root' or single-key root. Used by `xmltodict` backend.
+- `-t <name>, --tag <name>`: (for `*2x` - to XML) Wrap output in the specified tag. Uses `dict2xml` backend, which may produce simpler XML structure. If `-t` is used, `-R` is ignored.
+- `-N, --namespaces`: (for `x2*` - from XML) Read XML namespaces.
+- `-H, --header`: (for `c2*` - from CSV) Treat first row as header. Reads CSV as a list of dictionaries.
+- `-d <dialect>, --dialect <dialect>`: (for `c2*` - from CSV) Specify CSV dialect (e.g., 'excel', 'excel-tab', 'unix').
+- `-k <key_index>, --key <key_index>`: (for `c2*` - from CSV with header) Use column number (integer index) as the key for a top-level dictionary; values will be row dictionaries.
 
 Also installs direct CLI tools that correspond to the commands:
 
@@ -111,3 +138,59 @@ $ yaplon p2j -m -i input.plist
 - Python package on PyPi: [https://pypi.org/project/yaplon/](https://pypi.org/project/yaplon/)
 - Source on Github: [https://github.com/twardoch/yaplon](https://github.com/twardoch/yaplon)
 - Donate via [https://www.paypal.me/adamtwar](https://www.paypal.me/adamtwar)
+
+## Development
+
+To contribute to `yaplon` or set it up for development:
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/twardoch/yaplon.git
+    cd yaplon
+    ```
+
+2.  **Create and activate a virtual environment (recommended):**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On macOS/Linux
+    # Or: venv\Scripts\activate  # On Windows
+    ```
+
+3.  **Install in editable mode with development dependencies:**
+    ```bash
+    pip install -e .[dev]
+    ```
+    This installs the package in a way that your changes to the source code are immediately reflected. Development dependencies include tools for testing, linting, and packaging.
+
+4.  **Running Tests:**
+    Use the Makefile target:
+    ```bash
+    make test
+    ```
+    Or run pytest directly:
+    ```bash
+    python3 -m pytest
+    ```
+    To run with coverage:
+    ```bash
+    make test-cov
+    # Or: pytest --cov=yaplon tests/
+    ```
+
+5.  **Linting and Formatting:**
+    - To check code style with Flake8 and Black:
+      ```bash
+      make lint
+      ```
+    - To automatically format code with Black:
+      ```bash
+      make format
+      ```
+
+6.  **Building the Package:**
+    To build source distribution and wheel:
+    ```bash
+    make build
+    ```
+
+This project includes a comprehensive test suite and uses `flake8` for linting and `black` for code formatting to maintain code quality and consistency.
