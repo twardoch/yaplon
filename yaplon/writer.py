@@ -89,9 +89,9 @@ def plist(obj, output, binary=False):
         try:
             output_stream.write(oplist.plist_dumps(obj))
         finally:
-            if output_stream is not sys.stdout:
-                if hasattr(output_stream, 'name') and output_stream.name != '<stdout>':
-                    output_stream.close()
+            if output_stream is not sys.stdout and (hasattr(output_stream, 'name') and output_stream.name != '<stdout>'):
+                output_stream.close()
+
 
 
 def _simplexml(obj, output_target, mini=False, tag=""):
