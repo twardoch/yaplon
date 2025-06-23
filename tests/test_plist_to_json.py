@@ -200,9 +200,7 @@ def test_p2j_cli_xml_input_preserve_binary_minified():
 
 @pytest.fixture
 def binary_plist_fixture_bytes(): # Renamed to reflect it yields bytes
-    # Use EXPECTED_DICT_FROM_XML_READER as it contains bytes, matching reader.plist output
-    binary_data = plistlib.dumps(EXPECTED_DICT_FROM_XML_READER, fmt=plistlib.FMT_BINARY)
-    yield binary_data
+    yield plistlib.dumps(EXPECTED_DICT_FROM_XML_READER, fmt=plistlib.FMT_BINARY)
 
 def test_p2j_cli_binary_input_default(binary_plist_fixture_bytes):
     binary_bytes = binary_plist_fixture_bytes
