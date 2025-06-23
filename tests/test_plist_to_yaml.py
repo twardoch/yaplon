@@ -104,8 +104,7 @@ def test_plist_to_yaml_via_writer_functions():
 
 @pytest.fixture
 def binary_plist_fixture_for_yaml(): # Renamed to avoid conflict
-    binary_data = plistlib.dumps(SAMPLE_PLIST_DICT_FOR_YAML, fmt=plistlib.FMT_BINARY)
-    yield binary_data # yield bytes directly
+    yield plistlib.dumps(SAMPLE_PLIST_DICT_FOR_YAML, fmt=plistlib.FMT_BINARY)
 
 def test_plist_binary_to_yaml_via_writer_functions(binary_plist_fixture_for_yaml):
     binary_plist_bytes = binary_plist_fixture_for_yaml
