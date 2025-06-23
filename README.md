@@ -1,6 +1,6 @@
 # yaplon
 
-Convert between JSON, YAML, PLIST (binary and XML), XML, and CSV (read-only for CSV input) in the commandline.
+Convert between JSON, YAML, PLIST (binary and XML), XML, and CSV (read-only for CSV input) on the command line.
 Can be used in piping. Requires Python 3.9+.
 
 - Copyright (c) 2021-2024 Adam Twardoch <adam+github@twardoch.com> & Jules (AI Agent)
