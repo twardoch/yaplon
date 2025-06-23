@@ -112,11 +112,7 @@ def json_convert_to(obj, preserve_binary=False):
     """
     if isinstance(obj, bytes):
         b64_data = base64.b64encode(obj).decode('ascii')
-        if preserve_binary:
-            return b64_data
-        else:
-            # Represent as a special dict to indicate it was originally bytes
-            return {"__bytes__": True, "base64": b64_data}
+        return b64_data if preserve_binary else {"__bytes__": True, "base64": b64_data}
     elif isinstance(obj, (dict, collections.OrderedDict)):
         # Return a new dict to avoid modifying original during iteration if it's complex
         return {k: json_convert_to(v, preserve_binary) for k, v in obj.items()}
