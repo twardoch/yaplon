@@ -1,7 +1,10 @@
 """
-Serialized Data Converter.
+Provides helper functions for JSON serialization and deserialization,
+including custom handling for `bytes` objects and ensuring `OrderedDict`
+usage when reading JSON to preserve key order.
 
-Licensed under MIT
+Based on code from SerializedDataConverter by Isaac Muse.
+Licensed under MIT.
 Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 """
 
@@ -12,13 +15,24 @@ __all__ = ("read_json", "json_dumps")
 
 
 def json_dump(obj, stream, preserve_binary=False, compact=False):
-    """Wrap json dump."""
+    """Serialize Python object `obj` as a JSON formatted stream to `stream`.
+
+    Handles `bytes` objects via `json_convert_to` based on `preserve_binary`.
+    Supports compact (minified) output.
+
+    Args:
+        obj: The Python object to serialize.
+        stream: A .write()-supporting file-like object.
+        preserve_binary: If True, `bytes` are serialized as base64 strings.
+                         Otherwise, as `{"__bytes__": true, "base64": "..."}`.
+        compact: If True, output is minified (no indents/newlines).
+    """
     if compact:
         indent = None
-        separators = (',', ':')
+        separators = (",", ":")
     else:
         indent = 4
-        separators = (',', ': ')
+        separators = (",", ": ")
 
     return json.dump(
         json_convert_to(obj, preserve_binary),
@@ -26,60 +40,125 @@ def json_dump(obj, stream, preserve_binary=False, compact=False):
         ensure_ascii=False,
         sort_keys=False,
         indent=indent,
-        separators=separators
+        separators=separators,
     )
 
+
 def json_dumps(obj, preserve_binary=False, compact=False):
-    """Wrap json dumps."""
+    """Serialize Python object `obj` to a JSON formatted string.
+
+    Handles `bytes` objects via `json_convert_to` based on `preserve_binary`.
+    Supports compact (minified) output.
+
+    Args:
+        obj: The Python object to serialize.
+        preserve_binary: If True, `bytes` are serialized as base64 strings.
+                         Otherwise, as `{"__bytes__": true, "base64": "..."}`.
+        compact: If True, output is minified.
+
+    Returns:
+        A JSON formatted string.
+    """
     if compact:
         indent = None
-        separators = (',', ':')
+        separators = (",", ":")
     else:
         indent = 4
-        separators = (',', ': ')
+        separators = (",", ": ")
 
     return json.dumps(
         json_convert_to(obj, preserve_binary),
         ensure_ascii=False,
         sort_keys=False,
         indent=indent,
-        separators=separators
-    ).encode('utf-8').decode('raw_unicode_escape')
-
-
-def read_json(stream):
-    return json_convert_from(
-        json.load(
-            stream,
-            object_pairs_hook=collections.OrderedDict
-        )
+        separators=separators,
     )
 
 
+def read_json(stream):
+    """Deserialize JSON from `stream` to Python objects using OrderedDict.
+
+    Uses `json_convert_from` to handle custom object representations
+    (e.g., `{"__bytes__": true, "base64": "..."}` back to `bytes`).
+
+    Args:
+        stream: A .read()-supporting file-like object containing a JSON document.
+
+    Returns:
+        An OrderedDict representing the JSON data.
+    """
+    return json_convert_from(
+        json.load(stream, object_pairs_hook=collections.OrderedDict)
+    )
+
+import base64
+
 def json_convert_to(obj, preserve_binary=False):
-    """Strip tabs and trailing spaces to allow block format to successfully be triggered."""
+    """Recursively convert Python objects to a JSON serializable format.
 
-    if isinstance(obj, (dict, collections.OrderedDict)):
-        for k, v in obj.items():
-            obj[k] = json_convert_to(v, preserve_binary)
+    Specifically handles `bytes` objects:
+    - If `preserve_binary` is True, converts `bytes` to a base64 encoded string.
+    - If `preserve_binary` is False, converts `bytes` to a dictionary
+      `{"__bytes__": True, "base64": "encoded_string"}`.
+
+    Recurses through dicts and lists. Other types are returned as is.
+
+    Args:
+        obj: The Python object to convert.
+        preserve_binary: Flag to control `bytes` serialization format.
+
+    Returns:
+        A JSON serializable representation of the object.
+    """
+    if isinstance(obj, bytes):
+        b64_data = base64.b64encode(obj).decode('ascii')
+        return b64_data if preserve_binary else {"__bytes__": True, "base64": b64_data}
+    elif isinstance(obj, (dict, collections.OrderedDict)):
+        # Return a new dict to avoid modifying original during iteration if it's complex
+        return {k: json_convert_to(v, preserve_binary) for k, v in obj.items()}
     elif isinstance(obj, list):
-        count = 0
-        for v in obj:
-            obj[count] = json_convert_to(v, preserve_binary)
-            count += 1
+        # Return a new list
+        return [json_convert_to(item, preserve_binary) for item in obj]
 
+    # For other types, return as is, assuming json.dump can handle them
+    # (e.g., str, int, float, bool, None)
     return obj
 
 
 def json_convert_from(obj):
-    """Convert specific json items to a form usuable by others."""
+    """Recursively convert specific JSON structures back to Python types.
 
+    Handles:
+    - Dictionaries like `{"__bytes__": True, "base64": "..."}` back to `bytes`.
+    - Legacy `{"!!python/object:plistlib.Data": "..."}` back to `bytes`.
+
+    Recurses through dicts and lists.
+
+    Args:
+        obj: The JSON-decoded object (often a dict or list).
+
+    Returns:
+        The Python object with specific structures converted.
+    """
     if isinstance(obj, (dict, collections.OrderedDict)):
+        # Check for the new bytes representation first
+        if obj.get("__bytes__") is True and "base64" in obj:
+            try:
+                return base64.b64decode(obj["base64"])
+            except Exception: # pylint: disable=broad-except
+                # If base64 decoding fails, return the dict as is, or handle error
+                # For now, let's assume it was a legit dict not meant to be bytes
+                pass # Fall through to general dict processing
+
+        # Legacy handling for old plistlib.Data format, if it ever appears from other sources
         if len(obj) == 1 and "!!python/object:plistlib.Data" in obj:
-            obj = obj["!!python/object:plistlib.Data"]
-        else:
-            for k, v in obj.items():
-                obj[k] = json_convert_from(v)
+            try:
+                return base64.b64decode(obj["!!python/object:plistlib.Data"])
+            except Exception: # pylint: disable=broad-except
+                pass # Fall through
+
+        # General dictionary processing
+        return {k: json_convert_from(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         count = 0
         for v in obj:

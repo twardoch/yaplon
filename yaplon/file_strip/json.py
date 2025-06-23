@@ -4,11 +4,12 @@ File Strip.
 Licensed under MIT
 Copyright (c) 2012 Isaac Muse <isaacmuse@gmail.com>
 """
+
 import re
 from .comments import Comments
 
 JSON_PATTERN = re.compile(
-    r'''(?x)
+    r"""(?x)
         (
             (?P<square_comma>
                 ,                        # trailing comma
@@ -26,8 +27,8 @@ JSON_PATTERN = re.compile(
           | '(?:\\.|[^'\\])*'            # single quoted string
           | .[^,"']*                     # everything else
         )
-    ''',
-    re.DOTALL
+    """,
+    re.DOTALL,
 )
 
 
@@ -55,16 +56,18 @@ def strip_dangling_commas(text, preserve_lines=False):
         g = m.groupdict()
         return remove_comma(g, preserve_lines) if g["code"] is None else g["code"]
 
-    return ''.join(map(lambda m: evaluate(m, preserve_lines), regex.finditer(text)))
+    return "".join(map(lambda m: evaluate(m, preserve_lines), regex.finditer(text)))
 
 
 def strip_comments(text, preserve_lines=False):
     """Strip JavaScript like comments."""
 
-    return Comments('json', preserve_lines).strip(text)
+    return Comments("json", preserve_lines).strip(text)
 
 
 def sanitize_json(text, preserve_lines=False):
     """Sanitize the JSON file by removing comments and dangling commas."""
 
-    return strip_dangling_commas(Comments('json', preserve_lines).strip(text), preserve_lines)
+    return strip_dangling_commas(
+        Comments("json", preserve_lines).strip(text), preserve_lines
+    )
