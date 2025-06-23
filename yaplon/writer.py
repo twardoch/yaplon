@@ -160,12 +160,9 @@ def xml(obj, output, mini=False, tag=None, root="root"):
         pretty = not mini
         output_stream = None
 
-        if isinstance(output, str):
-            if output == '-':
-                output_stream = sys.stdout
-            else:
-                output_stream = output
-        elif hasattr(output, 'write'):
+        if isinstance(output, str) and output == '-':
+            output_stream = sys.stdout
+        elif isinstance(output, str) or hasattr(output, 'write'):
             output_stream = output
         else:
             raise TypeError(f"Unsupported output type for xmltodict: {type(output)}")
