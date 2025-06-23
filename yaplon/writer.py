@@ -81,11 +81,9 @@ def plist(obj, output, binary=False):
         try:
             output_stream.write(oplist.plist_binary_dumps(obj))
         finally:
-            if output_stream is not sys.stdout.buffer and output_stream is not sys.stdout:
-                 # Only close if it's a file we opened, not stdout.
-                 # click.File might handle this, but explicit check is safer.
-                if hasattr(output_stream, 'name') and output_stream.name != '<stdout>':
-                    output_stream.close()
+            if output_stream is not sys.stdout.buffer and output_stream is not sys.stdout and (hasattr(output_stream, 'name') and output_stream.name != '<stdout>'):
+                output_stream.close()
+
     else:
         output_stream = click.File("w")(output)
         try:
