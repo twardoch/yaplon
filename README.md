@@ -188,7 +188,7 @@ To contribute to `yaplon` or set it up for development:
       ```
 
 6.  **Building the Package:**
-    To build source distribution and wheel:
+    To build the source distribution and wheel:
     ```bash
     make build
     ```
