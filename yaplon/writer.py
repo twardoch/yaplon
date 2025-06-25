@@ -1,14 +1,8 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-Provides functions to write Python objects (typically OrderedDicts or lists)
-to various data formats (JSON, Plist, XML, YAML) and output them to streams
-or files. Handles options like minification and format-specific features
-(e.g., binary Plist, XML root/wrapper tags).
-"""
+""" """
 
 try:
-    from collections import Mapping
+    from collections.abc import Mapping
 except ImportError:
     from collections.abc import Mapping
 
@@ -19,10 +13,7 @@ import click
 import dict2xml
 import xmltodict as oxml
 
-import base64 # For bytes to base64 string
-from yaplon import ojson
-from yaplon import oplist
-from yaplon import oyaml
+from yaplon import ojson, oplist, oyaml
 
 import datetime # Ensure datetime is imported
 
@@ -82,44 +73,28 @@ def plist(obj, output_stream, binary=False):
         output_stream.write(oplist.plist_dumps(obj))
 
 
-def _simplexml(obj, output_target, mini=False, tag=""):
-    """Internal helper to write Python object to XML using dict2xml.
-    Assumes output_stream is an open, writable text stream.
-    """
+def _simplexml(obj, output, mini=False, tag=""):
     if mini:
         indent = ""
         newlines = False
     else:
-        indent = "  " # Preserving current default indent for dict2xml
+        indent = "  "
         newlines = True
-
-    xml_string = dict2xml.Converter(wrap=tag, indent=indent, newlines=newlines).build(obj)
-    output_stream.write(xml_string)
-    if output_stream is sys.stdout and not xml_string.endswith('\n'):
-        output_stream.write('\n')
+    output.write(
+        dict2xml.Converter(wrap=tag, indent=indent, newlines=newlines).build(obj)
+    )
 
 
-def xml(obj, output_stream, mini=False, tag=None, root="root"):
-    """Writes a Python object to an XML output stream.
-
-    Uses dict2xml if 'tag' (for a wrapper element) is provided, resulting
-    in simpler XML. Otherwise, uses xmltodict.unparse for more comprehensive
-    XML generation.
-
-    Bytes and datetime objects in 'obj' are pre-converted to base64 strings
-    and ISO 8601 strings, respectively, by _prepare_obj_for_xml.
-
-    Args:
-        obj: The Python object to serialize.
-        output_stream: A file-like object (text stream) to write XML to.
-        mini: If True, produces minified XML.
-        tag: If provided, uses dict2xml to wrap the output with this tag.
-             Ignores 'root' if 'tag' is set.
-        root: Root element name if dict2xml is not used and 'obj' is not
-              a dict with a single key (or to override that single key).
-    """
-    prepared_obj_for_xml = _prepare_obj_for_xml(obj)
-
+def xml(obj, output, mini=False, tag=None, root="root"):
+    # This is extremely primitive and buggy
+    if isinstance(obj, Mapping):
+        obj = OrderedDict(obj)
+        if len(obj.keys()) > 1:
+            obj = OrderedDict([(root, obj)])
+        else:
+            root = list(obj.keys())[0]
+    else:
+        obj = OrderedDict([(root, obj)])
     if tag:
         _simplexml(prepared_obj_for_xml, output_stream, mini=mini, tag=tag)
     else:
@@ -133,19 +108,16 @@ def xml(obj, output_stream, mini=False, tag=None, root="root"):
             processed_obj_for_xmltodict = OrderedDict([(root, processed_obj_for_xmltodict)])
 
         pretty = not mini
-        # output_stream is now directly passed and assumed to be an open stream
-
-        xml_string = oxml.unparse(
-            processed_obj_for_xmltodict,
-            output=None, # We want the string, not direct file output from unparse
-            full_document=True,
-            short_empty_elements=mini,
-            pretty=pretty,
-        )
-        output_stream.write(xml_string)
-        if output_stream is sys.stdout and not xml_string.endswith('\n'):
-            # Ensure newline for stdout consistency, if not already present
-            output_stream.write('\n')
+        try:
+            oxml.unparse(
+                obj,
+                output,
+                full_document=True,
+                short_empty_elements=mini,
+                pretty=pretty,
+            )
+        except:
+            pass
 
 
 def yaml(obj, output, mini=False):

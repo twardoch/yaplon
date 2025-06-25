@@ -1,19 +1,12 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-Provides functions to read various data formats (CSV, JSON, Plist, XML, YAML)
-and parse them into Python objects, typically OrderedDicts to preserve structure.
-Handles type conversions where appropriate (e.g., Plist data/dates, YAML tags).
-"""
+""" """
 
 import csv as ocsv
 from collections import OrderedDict
 
 import xmltodict as oxml
 
-from yaplon import ojson
-from yaplon import oplist
-from yaplon import oyaml
+from yaplon import ojson, oplist, oyaml
 
 
 def sort_ordereddict(od):

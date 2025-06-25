@@ -67,12 +67,16 @@ def json_dumps(obj, preserve_binary=False, compact=False):
         indent = 4
         separators = (",", ": ")
 
-    return json.dumps(
-        json_convert_to(obj, preserve_binary),
-        ensure_ascii=False,
-        sort_keys=False,
-        indent=indent,
-        separators=separators,
+    return (
+        json.dumps(
+            json_convert_to(obj, preserve_binary),
+            ensure_ascii=False,
+            sort_keys=False,
+            indent=indent,
+            separators=separators,
+        )
+        .encode("utf-8")
+        .decode("raw_unicode_escape")
     )
 
 
@@ -94,7 +98,7 @@ def read_json(stream):
     json_string = stream.read()
     sanitized_json_string = strip_json.sanitize_json(json_string, preserve_lines=True)
     return json_convert_from(
-        json.loads(sanitized_json_string, object_pairs_hook=collections.OrderedDict)
+        json.load(stream, object_pairs_hook=collections.OrderedDict)
     )
 
 import base64

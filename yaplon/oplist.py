@@ -64,12 +64,6 @@ def _prepare_obj_for_plist(item):
 def strip_plist_comments(text):
     """Strip XML-style comments from binary Plist data.
 
-    Args:
-        text: Bytes object containing Plist data.
-
-    Returns:
-        Bytes object with comments removed.
-    """
     return re.sub(rb"^[\r\n\s]*<!--[\s\S]*?-->[\s\r\n]*|<!--[\s\S]*?-->", b"", text)
 
 
@@ -101,7 +95,7 @@ def plist_dumps(obj, detect_timestamp=False, none_handler="fail"):
     """
     prepared_obj = _prepare_obj_for_plist(obj)
     return plistlib.dumps(
-        plist_convert_to(prepared_obj, detect_timestamp, none_handler), sort_keys=False
+        plist_convert_to(obj, detect_timestamp, none_handler), sort_keys=False
     ).decode("utf-8")
 
 
@@ -130,27 +124,7 @@ def plist_binary_dumps(obj, detect_timestamp=False, none_handler="fail"):
 import io
 
 def read_plist(stream):
-    """Read Plist (XML or binary) from `stream` into an OrderedDict.
-
-    Handles non-seekable streams (e.g., stdin) by buffering.
-    Uses `plist_convert_from` for post-processing after `plistlib.load`:
-    - Plist dates (loaded as `datetime.datetime` by `plistlib`) are converted
-      by `plist_convert_from` into ISO 8601 formatted strings.
-    - Plist `<data>` tags (loaded as `bytes` by `plistlib`) are kept as `bytes`.
-
-    Args:
-        stream: A .read()-supporting file-like object (binary stream).
-
-    Returns:
-        An OrderedDict representing the Plist data, with dates as ISO strings.
-    """
-    if not stream.seekable():
-        content = stream.read()
-        buffered_stream = io.BytesIO(content)
-        return plist_convert_from(plistlib.load(buffered_stream, dict_type=collections.OrderedDict))
-    else:
-        # Stream is already seekable (e.g., a regular file)
-        return plist_convert_from(plistlib.load(stream, dict_type=collections.OrderedDict))
+    return plist_convert_from(plistlib.load(stream, dict_type=collections.OrderedDict))
 
 
 def convert_timestamp(obj):
@@ -200,61 +174,31 @@ def plist_convert_from(obj):
 
 
 def plist_convert_to(obj, detect_timestamp=False, none_handler="fail"):
-    """Recursively prepare Python objects for `plistlib.dumps`.
+    """Convert specific serialized items to a plist format."""
 
-    This function is called by `plist_dumps` and `plist_binary_dumps`
-    *after* `_prepare_obj_for_plist` (which handles string numbers/booleans).
-
-    Handles:
-    - `None` values based on `none_handler` ('strip', 'false', or 'fail').
-      If 'fail' (default) and a `None` value is encountered in a dictionary,
-      `plistlib.dumps` might error or handle it in its own way (often creating
-      an empty string value for a key if `skipkeys=False`). This function's
-      `none_handler` allows preemptive stripping or conversion to `False`.
-    - String values that look like ISO 8601 timestamps are converted to
-      `datetime.datetime` objects if `detect_timestamp` is True. This allows
-      them to be serialized as Plist `<date>` elements.
-
-    Args:
-        obj: The Python object to prepare.
-        detect_timestamp: If True, convert ISO date strings to datetime objects.
-        none_handler: Policy for handling `None` values within dicts/lists.
-
-    Returns:
-        The prepared object, ready for `plistlib.dumps`.
-    """
-    if isinstance(obj, (dict, collections.OrderedDict)): # Handle dict and OrderedDict
-        # Create new dict to avoid modifying original if 'strip' is used
-        new_dict = collections.OrderedDict() if isinstance(obj, collections.OrderedDict) else {}
-        for k, v in obj.items():
-            if v is None:
-                if none_handler == "strip":
-                    continue
-                elif none_handler == "false":
-                    new_dict[k] = False
-                elif none_handler == "fail":
-                    # Let plistlib.dumps handle None or raise error if it can't.
-                    # Typically, plistlib.dumps converts a dict value of None to <string></string>.
-                    # For safety, one might want to raise an error here or convert to empty string.
-                    # For now, pass None through, plistlib will make it an empty string value.
-                    new_dict[k] = None
+    if isinstance(obj, dict):
+        for k, v in list(obj.items()) if none_handler == "strip" else obj.items():
+            if none_handler == "strip" and v is None:
+                del obj[k]
+            elif none_handler == "false" and v is None:
+                obj[k] = False
             else:
                 new_dict[k] = plist_convert_to(v, detect_timestamp, none_handler)
         return new_dict
     elif isinstance(obj, list):
-        new_list = []
-        for v in obj:
-            if v is None:
-                if none_handler == "strip":
-                    continue
-                elif none_handler == "false":
-                    new_list.append(False)
-                else: # 'fail' or other, pass None through
-                      # plistlib.dumps handles None in lists as <string></string>
-                    new_list.append(None)
+        count = 0
+        offset = 0
+        for v in obj[:] if none_handler == "strip" else obj:
+            if none_handler == "strip" and v is None:
+                del obj[count - offset]
+                offset += 1
+            elif none_handler == "false" and v is None:
+                obj[count - offset] = False
             else:
-                new_list.append(plist_convert_to(v, detect_timestamp, none_handler))
-        return new_list
+                obj[count - offset] = plist_convert_to(
+                    v, detect_timestamp, none_handler
+                )
+            count += 1
     elif isinstance(obj, str) and detect_timestamp:
         time_stamp = convert_timestamp(obj) # convert_timestamp now ensures obj is str
         if time_stamp is not None:

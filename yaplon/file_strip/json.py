@@ -6,6 +6,7 @@ Copyright (c) 2012 Isaac Muse <isaacmuse@gmail.com>
 """
 
 import re
+
 from .comments import Comments
 
 JSON_PATTERN = re.compile(

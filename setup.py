@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 import os
 import re
@@ -14,7 +13,7 @@ with open(readme_file) as f:
 
 
 def get_version(*args):
-    verstrline = open(os.path.join(NAME, "__init__.py"), "rt").read()
+    verstrline = open(os.path.join(NAME, "__init__.py")).read()
     VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
     mo = re.search(VSRE, verstrline, re.M)
     if mo:
@@ -45,8 +44,8 @@ setup(
     name=NAME,
     author="Adam Twardoch",
     author_email="adam+github@twardoch.com",
-    url=f"https://twardoch.github.io/{NAME}/",
-    project_urls={"Source": f"https://github.com/twardoch/{NAME}/"},
+    url="https://twardoch.github.io/%s/" % (NAME),
+    project_urls={"Source": "https://github.com/twardoch/%s/" % (NAME)},
     version=get_version(),
     license="MIT",
     description="Python 3-based commandline converter CSV → YAML ↔ JSON ↔ PLIST ↔ XML",
@@ -61,9 +60,6 @@ setup(
             "pip",
             "twine>=3.2.0",
             "pyinstaller>=4.0",
-            "flake8",
-            "black",
-            "pytest",
         ]
     },
     packages=find_packages(),
@@ -76,23 +72,22 @@ setup(
     keywords="yaml json plist csv xml convert cli",
     entry_points="""
         [console_scripts]
-        %(name)s=%(name)s.__main__:cli
-        csv22json=%(name)s.__main__:csv2json
-        csv22plist=%(name)s.__main__:csv2plist
-        csv22xml=%(name)s.__main__:csv2xml
-        csv22yaml=%(name)s.__main__:csv2yaml
-        json22plist=%(name)s.__main__:json2plist
-        json22xml=%(name)s.__main__:json2xml
-        json22yaml=%(name)s.__main__:json2yaml
-        plist22json=%(name)s.__main__:plist2json
-        plist22xml=%(name)s.__main__:plist2xml
-        plist22yaml=%(name)s.__main__:plist2yaml
-        xml22json=%(name)s.__main__:xml2json
-        xml22plist=%(name)s.__main__:xml2plist
-        xml22yaml=%(name)s.__main__:xml2yaml
-        yaml22json=%(name)s.__main__:yaml2json
-        yaml22plist=%(name)s.__main__:yaml2plist
-        yaml22xml=%(name)s.__main__:yaml2xml
-    """
-    % {"name": NAME},
+        {name}={name}.__main__:cli
+        csv22json={name}.__main__:csv2json
+        csv22plist={name}.__main__:csv2plist
+        csv22xml={name}.__main__:csv2xml
+        csv22yaml={name}.__main__:csv2yaml
+        json22plist={name}.__main__:json2plist
+        json22xml={name}.__main__:json2xml
+        json22yaml={name}.__main__:json2yaml
+        plist22json={name}.__main__:plist2json
+        plist22xml={name}.__main__:plist2xml
+        plist22yaml={name}.__main__:plist2yaml
+        xml22json={name}.__main__:xml2json
+        xml22plist={name}.__main__:xml2plist
+        xml22yaml={name}.__main__:xml2yaml
+        yaml22json={name}.__main__:yaml2json
+        yaml22plist={name}.__main__:yaml2plist
+        yaml22xml={name}.__main__:yaml2xml
+    """.format(name=NAME),
 )

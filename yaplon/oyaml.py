@@ -71,93 +71,59 @@ def read_yaml(stream, loader=yaml.SafeLoader): # Changed default to SafeLoader
       (e.g., "YYYY-MM-DD" for dates, "YYYY-MM-DDTHH:MM:SS[.ffffff]Z" for datetimes, ensuring UTC 'Z').
     - `!!regex` tags are loaded as strings.
 
-    Args:
-        stream: A .read()-supporting file-like object containing a YAML document.
-        loader: The PyYAML Loader class to base the custom loader on (default: `yaml.SafeLoader`).
+        timestamp = self.construct_yaml_timestamp(node)
+        if not isinstance(timestamp, datetime.datetime):
+            timestamp = str(timestamp)
+        else:
+            timestamp = (
+                "%(year)04d-%(month)02d-%(day)02dT%(hour)02d:%(minute)02d:%(second)02d%(microsecond)sZ"
+                % {
+                    "year": timestamp.year,
+                    "month": timestamp.month,
+                    "day": timestamp.day,
+                    "hour": timestamp.hour,
+                    "minute": timestamp.minute,
+                    "second": timestamp.second,
+                    "microsecond": ".%06d" % timestamp.microsecond
+                    if timestamp.microsecond != 0
+                    else "",
+                }
+            )
+        return timestamp
 
-    Returns:
-        An OrderedDict (usually) or other Python object representing the YAML data.
-    """
+    def construct_mapping(loader, node):
+        """Keep dict ordered."""
 
-    def binary_constructor(loader_instance, node): # Added loader_instance arg
-        """YAML constructor to convert !!binary tags to Python bytes."""
-        return loader_instance.construct_yaml_binary(node)
+        loader.flatten_mapping(node)
+        return OrderedDict(loader.construct_pairs(node))
 
-    def timestamp_constructor(loader_instance, node): # Added loader_instance arg
-        """YAML constructor for !!timestamp tags.
-        Converts datetime.date to "YYYY-MM-DD" string.
-        Converts datetime.datetime to "YYYY-MM-DDTHH:MM:SS[.ffffff]Z" ISO 8601 string (UTC).
-        """
-        timestamp_obj = loader_instance.construct_yaml_timestamp(node) # PyYAML parses into date/datetime
+    class Loader(loader):
+        """Custom loader."""
 
-        if isinstance(timestamp_obj, datetime.datetime):
-            # Ensure UTC if aware, then format
-            if timestamp_obj.tzinfo is not None and timestamp_obj.tzinfo != datetime.timezone.utc:
-                timestamp_obj = timestamp_obj.astimezone(datetime.timezone.utc)
-            elif timestamp_obj.tzinfo is None: # If naive, assume UTC for ISO Z format
-                 timestamp_obj = timestamp_obj.replace(tzinfo=datetime.timezone.utc)
-
-            # Format with 'Z' for UTC
-            iso_str = timestamp_obj.isoformat(timespec='microseconds')
-            if iso_str.endswith('+00:00'):
-                iso_str = iso_str[:-6] + 'Z'
-            return iso_str
-        elif isinstance(timestamp_obj, datetime.date):
-            # For datetime.date objects, convert to simple YYYY-MM-DD string
-            return timestamp_obj.isoformat() # datetime.date.isoformat() is YYYY-MM-DD
-        return str(timestamp_obj) # Fallback for other timestamp-like objects
-
-    def construct_mapping(loader_instance, node): # Added loader_instance arg
-        """YAML constructor to ensure mappings become OrderedDict."""
-        loader_instance.flatten_mapping(node)
-        return OrderedDict(loader_instance.construct_pairs(node))
-
-    class CustomLoader(loader):
-        """Custom PyYAML Loader with specific constructors."""
-        pass
-
-    CustomLoader.add_constructor(
+    Loader.add_constructor(
         yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct_mapping
     )
-    CustomLoader.add_constructor("tag:yaml.org,2002:binary", binary_constructor)
-    CustomLoader.add_constructor("tag:yaml.org,2002:timestamp", timestamp_constructor)
-    CustomLoader.add_constructor("tag:yaml.org,2002:regex", CustomLoader.construct_yaml_str) # Use method from loader
 
-    return yaml.load(stream, Loader=CustomLoader)
+    Loader.add_constructor("tag:yaml.org,2002:binary", binary_constructor)
+
+    Loader.add_constructor("tag:yaml.org,2002:timestamp", timestamp_constructor)
+
+    # Add !!Regex support during translation
+    Loader.add_constructor("tag:yaml.org,2002:regex", Loader.construct_yaml_str)
+
+    return yaml.load(stream, Loader)
 
 
 def yaml_dump(
     data,
     stream=None,
-    dumper=yaml.SafeDumper, # Changed default to SafeDumper
+    dumper=yaml.Dumper,
     width=180,
     quote_strings=False,
     block_strings=False,
     double_quote=False,
-    **kwargs
+    **kwargs,
 ):
-    """Serialize a Python object to a YAML formatted stream or string using a custom Dumper.
-
-    The custom Dumper allows for:
-    - Control over scalar string styles (block, literal, single/double quoted)
-      based on content and flags (`quote_strings`, `block_strings`, `double_quote`).
-    - Representation of `OrderedDict` and `AttrDict` while preserving key order.
-    - PyYAML's default handling for `bytes` (to `!!binary` tag) and `datetime` objects
-      (to YAML timestamp strings) will apply if they are present in `data`.
-
-    Args:
-        data: The Python object to serialize.
-        stream: Optional .write()-supporting file-like object. If None, returns a string.
-        dumper: The PyYAML Dumper class to base the custom dumper on (default: `yaml.SafeDumper`).
-        width: Preferred line width for output.
-        quote_strings: If True, attempts to quote strings containing spaces if not block.
-        block_strings: If True, attempts to use block style for multi-line strings.
-        double_quote: If True, uses double quotes for quoted strings; else single.
-        **kwargs: Additional keyword arguments passed to `yaml.dump` (e.g., `sort_keys`).
-
-    Returns:
-        A YAML formatted string if `stream` is None, otherwise None.
-    """
     if not width:
         width = float("inf")
 
@@ -171,49 +137,39 @@ def yaml_dump(
     def should_use_quotes(value):
         """Internal helper: True if string value with spaces should be quoted."""
         if isinstance(value, str):
-            if " " in value and not should_use_block(value):
+            if " " in value:
                 return True
         return False
 
     def must_use_quotes(value):
         """Internal helper: True if string value must be quoted due to YAML syntax conflicts."""
         if isinstance(value, str) and len(value) > 0:
-            if ":" in value and not should_use_block(value):
+            if ":" in value:
                 return True
-            if value[0] in (" ", ".", "@", "'", '"', "!", "&", "*", "-", "?", "{", "}", "[", "]", ",", "|", ">", "%", "`", "#", "<"):
+            elif value[0] in (" ", ".", "@"):
                 return True
-            if value[-1] in (" ", "."):
-                return True
-            val_lower = value.lower()
-            if val_lower in ("true", "false", "null", "on", "off", "yes", "no", "~") :
-                 return True
-            try:
-                float(value)
+            elif value[-1] in (" ", "."):
                 return True
             except ValueError:
                 pass
         return False
 
     def my_represent_scalar(self, tag, value, style=None):
-        """Custom scalar representer to control quoting and block styles."""
-        if style is None: # Only intervene if no style is explicitly set by PyYAML
-            if block_strings and should_use_block(value):
+        """Scalar."""
+        if style is None:
+            if block_strings and should_use_quotes(value):
                 style = "|"
             elif should_use_block(value):
                 style = "|"
-            elif must_use_quotes(value):
-                style = '"' if double_quote else "'"
-            elif quote_strings and should_use_quotes(value):
-                style = '"' if double_quote else "'"
-            # else, let PyYAML decide the default_style (usually plain)
-
+            else:
+                if quote_strings and should_use_quotes(value):
+                    style = "double-quoted" if double_quote else "single-quoted"
+                elif must_use_quotes(value):
+                    style = "double-quoted" if double_quote else self.default_style
+                else:
+                    style = self.default_style
             if value == "":
-                style = '"' if double_quote else "'"
-
-        # Use self.default_style if no other style was determined by our logic but one is needed
-        if style is None and self.default_style is not None and \
-           (must_use_quotes(value) or (quote_strings and should_use_quotes(value))):
-            style = self.default_style
+                style = "double-quoted" if double_quote else "single-quoted"
 
         node = yaml.representer.ScalarNode(tag, value, style=style)
         if self.alias_key is not None:
@@ -227,13 +183,13 @@ def yaml_dump(
     CustomDumper.represent_scalar = my_represent_scalar
     CustomDumper.add_representer(
         OrderedDict,
-        lambda dumper_instance, data: dumper_instance.represent_mapping( # Use dumper_instance
+        lambda self, data: self.represent_mapping(
             "tag:yaml.org,2002:map", data.items()
         ),
     )
     CustomDumper.add_representer(
         AttrDict,
-        lambda dumper_instance, data: dumper_instance.represent_mapping( # Use dumper_instance
+        lambda self, data: self.represent_mapping(
             "tag:yaml.org,2002:map", data.items()
         ),
     )
@@ -247,6 +203,7 @@ def yaml_dump(
 
     return yaml.dump(data, stream, Dumper=CustomDumper, width=width, allow_unicode=True, **kwargs)
 
+    return yaml.dump(data, stream, Dumper, width=width, allow_unicode=True, **kwargs)
 
 def convert_timestamp(obj_str): # Renamed obj to obj_str for clarity
     """Parses a string matching the YAML timestamp regular expression.
@@ -280,23 +237,24 @@ def convert_timestamp(obj_str): # Renamed obj to obj_str for clarity
             if g["microsecond"] is not None:
                 micro_string = g["microsecond"][:6]
                 microsecond = int(micro_string + ("0" * (6 - len(micro_string))))
+            else:
+                microsecond = 0
 
             tzinfo = None
             if g["tz_sign"] is not None:
                 tz_hour = int(g["tz_hour"])
-                tz_minute = int(g["tz_minute"]) if g["tz_minute"] is not None else 0
-                offset_seconds = (tz_hour * 3600 + tz_minute * 60) * (-1 if g["tz_sign"] == "-" else 1)
-                tzinfo = datetime.timezone(datetime.timedelta(seconds=offset_seconds))
-            elif g["tz_sign"] is None and 'Z' in obj_str : # Check for 'Z' if no explicit offset
-                tzinfo = datetime.timezone.utc
+                tz_minute = int(g["tz_minute"]) if g.tz_minute is not None else 0
+                delta = datetime.timedelta(hours=tz_hour, minutes=tz_minute) * (
+                    -1 if g["tz_sign"] == "-" else 1
+                )
+            else:
+                delta = None
 
             time_stamp = datetime.datetime(
-                year, month, day, hour, minute, second, microsecond, tzinfo=tzinfo
+                year, month, day, hour, minute, second, microsecond
             )
-            # This part was for adjusting to local time, which is not needed if tzinfo is set.
-            # if delta is not None and time_stamp is not None:
-            #    time_stamp = time_stamp - delta
-    return time_stamp
+
+    return time_stamp if delta is None else time_stamp - delta
 
 
 def yaml_convert_to(obj, strip_tabs=False, detect_timestamp=False):
@@ -343,35 +301,10 @@ def yaml_dumps(
     width=180,
     quote_strings=False,
     block_strings=False,
-    indent=None, # Changed default to None, yaml_dump will handle default if not compact
+    indent=4,
     double_quote=False,
-    **kwargs
 ):
-    """Serialize a Python object `obj` to a YAML formatted string.
-
-    This is a convenience wrapper around `yaml_dump`.
-    It calls `yaml_convert_to` for preprocessing based on `detect_timestamp`.
-    Handles `compact` (minified) output by setting `default_flow_style=True`.
-
-    Args:
-        obj: The Python object to serialize.
-        compact: If True, output is minified (flow style).
-        detect_timestamp: Passed to `yaml_convert_to` for date string detection.
-        width: Passed to `yaml_dump`.
-        quote_strings: Passed to `yaml_dump`.
-        block_strings: Passed to `yaml_dump`.
-        indent: Passed to `yaml_dump`. If `compact` is True, `indent` is effectively 0
-                due to `default_flow_style=True`. If `compact` is False and `indent`
-                is None, PyYAML's default indentation (usually 2) is used.
-        double_quote: Passed to `yaml_dump`.
-        **kwargs: Additional arguments passed to `yaml_dump` and then to `PyYAML.dump`.
-
-    Returns:
-        A YAML formatted string.
-    """
-    # Prepare kwargs for yaml_dump
-    dump_kwargs = kwargs.copy() # Start with a copy of incoming kwargs
-
+    """Wrapper for yaml dump."""
     if compact:
         dump_kwargs['default_flow_style'] = True
         # When flow style is true, indent is often less relevant or handled differently by PyYAML
@@ -391,5 +324,4 @@ def yaml_dumps(
         quote_strings=quote_strings,
         block_strings=block_strings,
         double_quote=double_quote,
-        **dump_kwargs
     )

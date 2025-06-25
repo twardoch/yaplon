@@ -42,28 +42,40 @@ PY_PATTERN = re.compile(
 
 
 def _strip_regex(pattern, text, preserve_lines):
-    """Generic internal function that strips out comments based on the given regex pattern."""
+    """Generic function that strips out comments pased on the given pattern."""
 
-    def remove_comments(group_text, preserve_lines_flag=False): # Renamed preserve_lines for clarity
-        """Remove comment text, optionally preserving line breaks within it."""
-        if preserve_lines_flag:
-            return "".join([x[0] for x in LINE_PRESERVE.findall(group_text)])
-        return ""
+    def remove_comments(group, preserve_lines=False):
+        """Remove comments."""
 
-    def evaluate(match_obj, preserve_lines_flag): # Renamed m, preserve_lines
-        """Evaluate a regex match: return code or processed comment group."""
-        g = match_obj.groupdict()
-        if g["code"] is not None:
-            return g["code"]
-        else:
-            return remove_comments(g["comments"], preserve_lines_flag)
+        return (
+            "".join([x[0] for x in LINE_PRESERVE.findall(group)])
+            if preserve_lines
+            else ""
+        )
+
+    def evaluate(m, preserve_lines):
+        """Search for comments."""
+
+        g = m.groupdict()
+        return (
+            g["code"]
+            if g["code"] is not None
+            else remove_comments(g["comments"], preserve_lines)
+        )
 
     return "".join(map(lambda m: evaluate(m, preserve_lines), pattern.finditer(text)))
 
 
-# These are intended as static methods for the Comments class or direct use if refactored.
-# For now, they are module-level functions used by Comments.add_style.
-# Changed to be static methods of the Comments class later.
+@staticmethod
+def _cpp(text, preserve_lines=False):
+    """C/C++ style comment stripper."""
+
+    return _strip_regex(CPP_PATTERN, text, preserve_lines)
+
+    return "".join(map(lambda m: evaluate(m, preserve_lines), pattern.finditer(text)))
+
+
+    return _strip_regex(PY_PATTERN, text, preserve_lines)
 
 
 class CommentException(Exception):
@@ -79,14 +91,8 @@ class CommentException(Exception):
         return repr(self.value)
 
 
-class Comments(object):
-    """
-    Manages and applies different comment stripping styles.
-
-    Styles (e.g., 'c', 'python') are registered using `add_style` along with
-    their corresponding stripping functions. The `strip` method then applies
-    the configured style to a given text.
-    """
+class Comments:
+    """Comment strip class."""
 
     _styles_registry = {} # Renamed to avoid conflict if a style is named 'styles'
 
@@ -146,7 +152,8 @@ class Comments(object):
         return self.selected_style_fn(text, self.preserve_lines)
 
 
-Comments.add_style("c", Comments._cpp)
-Comments.add_style("json", Comments._cpp) # JSON uses C-style comments
-Comments.add_style("cpp", Comments._cpp)
-Comments.add_style("python", Comments._python)
+
+Comments.add_style("c", _cpp)
+Comments.add_style("json", _cpp)
+Comments.add_style("cpp", _cpp)
+Comments.add_style("python", _python)
