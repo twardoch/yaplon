@@ -63,14 +63,7 @@ def _strip_regex(pattern, text, preserve_lines):
 
 # These are intended as static methods for the Comments class or direct use if refactored.
 # For now, they are module-level functions used by Comments.add_style.
-def _cpp(text, preserve_lines=False):
-    """Strips C/C++ style comments (/* ... */ and // ...)."""
-    return _strip_regex(CPP_PATTERN, text, preserve_lines)
-
-
-def _python(text, preserve_lines=False):
-    """Strips Python style comments (# ...)."""
-    return _strip_regex(PY_PATTERN, text, preserve_lines)
+# Changed to be static methods of the Comments class later.
 
 
 class CommentException(Exception):
@@ -95,7 +88,7 @@ class Comments(object):
     the configured style to a given text.
     """
 
-    styles = [] # Class variable to store registered style names
+    _styles_registry = {} # Renamed to avoid conflict if a style is named 'styles'
 
     def __init__(self, style=None, preserve_lines=False):
         """Initialize with a specific comment style and line preservation flag.
@@ -106,28 +99,38 @@ class Comments(object):
                             otherwise comments are replaced with an empty string.
         """
         self.preserve_lines = preserve_lines
-        self.call = self._get_style(style) # Changed to call _get_style
+        self.selected_style_fn = self._get_style_fn(style)
+
+    @staticmethod
+    def _cpp(text, preserve_lines=False):
+        """Strips C/C++ style comments (/* ... */ and // ...)."""
+        return _strip_regex(CPP_PATTERN, text, preserve_lines)
+
+    @staticmethod
+    def _python(text, preserve_lines=False):
+        """Strips Python style comments (# ...)."""
+        return _strip_regex(PY_PATTERN, text, preserve_lines)
 
     @classmethod
-    def add_style(cls, style, fn):
+    def add_style(cls, style_name, style_function):
         """Class method to register a new comment stripping style.
 
         Args:
-            style: The name of the style (e.g., "c", "python").
-            fn: The function that implements stripping for this style.
-                The function should accept (text, preserve_lines) arguments.
+            style_name: The name of the style (e.g., "c", "python").
+            style_function: The function that implements stripping for this style.
+                            It should be a static method or a function that accepts
+                            (text, preserve_lines) arguments.
         """
-        if not hasattr(cls, style): # Check if style method already exists
-            setattr(cls, style, fn) # Make it a method of the class for direct call
-            if style not in cls.styles: # Keep track of style names
-                 cls.styles.append(style)
+        if not callable(style_function):
+            raise TypeError("Style function must be callable.")
+        cls._styles_registry[style_name] = style_function
 
-    def _get_style(self, style): # Changed to _get_style for internal use
+    def _get_style_fn(self, style_name):
         """Internal method to retrieve the function for a given style name."""
-        if hasattr(self, style) and style in self.styles:
-            return getattr(self, style) # Return the method itself
-        else:
-            raise CommentException(f"Comment style '{style}' not recognized or registered.")
+        style_fn = self._styles_registry.get(style_name)
+        if style_fn is None:
+            raise CommentException(f"Comment style '{style_name}' not recognized or registered.")
+        return style_fn
 
     def strip(self, text):
         """Applies the configured comment stripping style to the given text.
@@ -138,14 +141,12 @@ class Comments(object):
         Returns:
             The text with comments stripped according to the configured style.
         """
-        if not self.call: # Should not happen if constructor worked
+        if not self.selected_style_fn: # Should not happen if constructor worked
             raise CommentException("No comment stripping style configured.")
-        # The self.call is now the stripping function (e.g., _cpp or _python)
-        # which needs to be called with text and preserve_lines.
-        return self.call(text, self.preserve_lines)
+        return self.selected_style_fn(text, self.preserve_lines)
 
 
-Comments.add_style("c", _cpp)
-Comments.add_style("json", _cpp)
-Comments.add_style("cpp", _cpp)
-Comments.add_style("python", _python)
+Comments.add_style("c", Comments._cpp)
+Comments.add_style("json", Comments._cpp) # JSON uses C-style comments
+Comments.add_style("cpp", Comments._cpp)
+Comments.add_style("python", Comments._python)

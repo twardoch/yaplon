@@ -39,6 +39,8 @@ pip install -e .[dev]
 yaplon [c|j|p|x|y]2[j|p|x|y] -i input -o output [options]
 ```
 
+Yaplon supports JSON input with C-style comments (`// ...` and `/* ... */`) and trailing commas in objects/arrays (similar to JSON5).
+
 ### Commands:
 
 ```

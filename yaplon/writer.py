@@ -61,8 +61,8 @@ def json(obj, output, mini=False, binary=False):
     ojson.json_dump(obj, output, preserve_binary=binary, compact=mini)
 
 
-def plist(obj, output, binary=False):
-    """Writes a Python object to a Plist output stream or file path.
+def plist(obj, output_stream, binary=False):
+    """Writes a Python object to a Plist output stream.
 
     Handles conversion to XML Plist (default) or binary Plist.
     Manages type conversions suitable for Plist (e.g., strings for numbers/bools
@@ -70,71 +70,48 @@ def plist(obj, output, binary=False):
 
     Args:
         obj: The Python object to serialize.
-        output: A file path string (including '-') or a file-like object.
-                If a path, the file is created/overwritten.
-                If '-', stdout is used.
+        output_stream: A file-like object (binary for binary Plist, text for XML Plist)
+                       to write Plist data to.
         binary: If True, outputs binary Plist; otherwise, XML Plist.
     """
     if binary:
-        # click.File handles '-' for stdout in binary mode correctly
-        output_stream = click.File("wb")(output)
-        try:
-            output_stream.write(oplist.plist_binary_dumps(obj))
-        finally:
-            if output_stream is not sys.stdout.buffer and output_stream is not sys.stdout and (hasattr(output_stream, 'name') and output_stream.name != '<stdout>'):
-                output_stream.close()
-
+        # Ensure output_stream is suitable for binary writing (caller's responsibility via __main__.py)
+        output_stream.write(oplist.plist_binary_dumps(obj))
     else:
-        output_stream = click.File("w")(output)
-        try:
-            output_stream.write(oplist.plist_dumps(obj))
-        finally:
-            if output_stream is not sys.stdout and (hasattr(output_stream, 'name') and output_stream.name != '<stdout>'):
-                output_stream.close()
-
+        # Ensure output_stream is suitable for text writing (caller's responsibility via __main__.py)
+        output_stream.write(oplist.plist_dumps(obj))
 
 
 def _simplexml(obj, output_target, mini=False, tag=""):
     """Internal helper to write Python object to XML using dict2xml.
-    Handles file path string or stream output.
+    Assumes output_stream is an open, writable text stream.
     """
     if mini:
         indent = ""
         newlines = False
     else:
-        indent = "  "
+        indent = "  " # Preserving current default indent for dict2xml
         newlines = True
 
     xml_string = dict2xml.Converter(wrap=tag, indent=indent, newlines=newlines).build(obj)
-
-    if hasattr(output_target, 'write'): # It's a file-like object
-        output_target.write(xml_string)
-    elif isinstance(output_target, str):
-        if output_target == '-':
-            sys.stdout.write(xml_string)
-            if not xml_string.endswith('\n'): # Ensure newline for stdout consistency
-                 sys.stdout.write('\n')
-        else:
-            with open(output_target, 'w', encoding='utf-8') as f:
-                f.write(xml_string)
-    else:
-        raise TypeError(f"Unsupported output type for _simplexml: {type(output_target)}")
+    output_stream.write(xml_string)
+    if output_stream is sys.stdout and not xml_string.endswith('\n'):
+        output_stream.write('\n')
 
 
-def xml(obj, output, mini=False, tag=None, root="root"):
-    """Writes a Python object to an XML output stream or file.
+def xml(obj, output_stream, mini=False, tag=None, root="root"):
+    """Writes a Python object to an XML output stream.
 
     Uses dict2xml if 'tag' (for a wrapper element) is provided, resulting
     in simpler XML. Otherwise, uses xmltodict.unparse for more comprehensive
-    XML generation (including type hints as attributes by default, though
-    yaplon currently produces no type hints from this path).
+    XML generation.
 
     Bytes and datetime objects in 'obj' are pre-converted to base64 strings
-    and ISO 8601 strings, respectively.
+    and ISO 8601 strings, respectively, by _prepare_obj_for_xml.
 
     Args:
         obj: The Python object to serialize.
-        output: A file path string (including '-') or a file-like object.
+        output_stream: A file-like object (text stream) to write XML to.
         mini: If True, produces minified XML.
         tag: If provided, uses dict2xml to wrap the output with this tag.
              Ignores 'root' if 'tag' is set.
@@ -144,7 +121,7 @@ def xml(obj, output, mini=False, tag=None, root="root"):
     prepared_obj_for_xml = _prepare_obj_for_xml(obj)
 
     if tag:
-        _simplexml(prepared_obj_for_xml, output, mini, tag)
+        _simplexml(prepared_obj_for_xml, output_stream, mini=mini, tag=tag)
     else:
         processed_obj_for_xmltodict = prepared_obj_for_xml
         if isinstance(processed_obj_for_xmltodict, Mapping):
@@ -156,32 +133,19 @@ def xml(obj, output, mini=False, tag=None, root="root"):
             processed_obj_for_xmltodict = OrderedDict([(root, processed_obj_for_xmltodict)])
 
         pretty = not mini
-        output_stream = None
-
-        if isinstance(output, str) and output == '-':
-            output_stream = sys.stdout
-        elif isinstance(output, str) or hasattr(output, 'write'):
-            output_stream = output
-        else:
-            raise TypeError(f"Unsupported output type for xmltodict: {type(output)}")
+        # output_stream is now directly passed and assumed to be an open stream
 
         xml_string = oxml.unparse(
             processed_obj_for_xmltodict,
-            output=None,
+            output=None, # We want the string, not direct file output from unparse
             full_document=True,
             short_empty_elements=mini,
             pretty=pretty,
         )
-
-        if output_stream == sys.stdout:
-            sys.stdout.write(xml_string)
-            if not xml_string.endswith('\n'):
-                sys.stdout.write('\n')
-        elif isinstance(output_stream, str):
-            with open(output_stream, 'w', encoding='utf-8') as f:
-                f.write(xml_string)
-        else:
-            output_stream.write(xml_string)
+        output_stream.write(xml_string)
+        if output_stream is sys.stdout and not xml_string.endswith('\n'):
+            # Ensure newline for stdout consistency, if not already present
+            output_stream.write('\n')
 
 
 def yaml(obj, output, mini=False):
