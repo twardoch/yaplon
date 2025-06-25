@@ -77,6 +77,9 @@ def csv(input, dialect=None, header=True, key=None, sort=False):
 def json(input, sort=False):
     """Reads JSON from input stream into an OrderedDict. Optionally sorts.
 
+    Supports JSON with C-style comments and trailing commas (JSON5-like features)
+    by sanitizing the input before parsing.
+
     Args:
         input: A file-like object (text stream) for JSON input.
         sort: If True, recursively sorts the resulting OrderedDict by keys.

@@ -10,6 +10,7 @@ Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
 
 import collections
 import json
+from yaplon.file_strip import json as strip_json # For sanitize_json
 
 __all__ = ("read_json", "json_dumps")
 
@@ -78,17 +79,22 @@ def json_dumps(obj, preserve_binary=False, compact=False):
 def read_json(stream):
     """Deserialize JSON from `stream` to Python objects using OrderedDict.
 
-    Uses `json_convert_from` to handle custom object representations
-    (e.g., `{"__bytes__": true, "base64": "..."}` back to `bytes`).
+    This function first sanitizes the JSON input string to remove comments and
+    trailing commas, then parses it. It uses `json_convert_from` to handle
+    custom object representations (e.g., `{"__bytes__": true, "base64": "..."}`
+    back to `bytes`).
 
     Args:
         stream: A .read()-supporting file-like object containing a JSON document.
+                The content is expected to be text.
 
     Returns:
         An OrderedDict representing the JSON data.
     """
+    json_string = stream.read()
+    sanitized_json_string = strip_json.sanitize_json(json_string, preserve_lines=True)
     return json_convert_from(
-        json.load(stream, object_pairs_hook=collections.OrderedDict)
+        json.loads(sanitized_json_string, object_pairs_hook=collections.OrderedDict)
     )
 
 import base64

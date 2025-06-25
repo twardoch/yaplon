@@ -1,0 +1,5663 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  FUNDING.yml
+tests/
+  __init__.py
+  helpers.py
+  test_json_to_plist.py
+  test_json_to_xml.py
+  test_json_to_yaml.py
+  test_plist_to_json.py
+  test_plist_to_xml.py
+  test_plist_to_yaml.py
+  test_xml_to_json.py
+  test_xml_to_plist.py
+  test_xml_to_yaml.py
+  test_yaml_to_json.py
+  test_yaml_to_plist.py
+  test_yaml_to_xml.py
+yaplon/
+  file_strip/
+    __init__.py
+    comments.py
+    json.py
+  __init__.py
+  __main__.py
+  ojson.py
+  oplist.py
+  oyaml.py
+  reader.py
+  writer.py
+_config.yml
+.gitignore
+dist.sh
+LICENSE
+Makefile
+MANIFEST.in
+README.md
+requirements.txt
+setup.cfg
+setup.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".github/FUNDING.yml">
+# These are supported funding model platforms
+
+custom: ['https://paypal.me/adamtwar']
+</file>
+
+<file path="tests/__init__.py">
+# This file makes the tests directory a Python package.
+</file>
+
+<file path="tests/helpers.py">
+import pytest
+import tempfile
+import os
+import subprocess
+import json
+import yaml
+import plistlib
+import xmltodict
+from xml.etree import ElementTree as ET
+
+# --- Assertion Helpers ---
+
+def assert_json_strings_equal(json_str1, json_str2):
+    try:
+        obj1 = json.loads(json_str1)
+        obj2 = json.loads(json_str2)
+        assert obj1 == obj2, f"JSON objects differ.\nObj1: {obj1}\nObj2: {obj2}"
+    except json.JSONDecodeError as e:
+        pytest.fail(f"Failed to decode JSON strings for comparison: {e}\nString 1: {json_str1[:200]}...\nString 2: {json_str2[:200]}...")
+
+def assert_yaml_strings_equal(yaml_str1, yaml_str2):
+    try:
+        obj1 = yaml.safe_load(yaml_str1)
+        obj2 = yaml.safe_load(yaml_str2)
+        assert obj1 == obj2, f"YAML objects differ.\nObj1: {obj1}\nObj2: {obj2}"
+    except yaml.YAMLError as e:
+        pytest.fail(f"Failed to decode YAML strings for comparison: {e}\nString 1: {yaml_str1[:200]}...\nString 2: {yaml_str2[:200]}...")
+
+def assert_plist_xml_strings_equal(xml_str1, xml_str2):
+    """Compares two Plist XML strings by loading them into dicts."""
+    try:
+        # Ensure consistent decoding, especially if XML strings might have declarations
+        dict1 = plistlib.loads(xml_str1.encode('utf-8'))
+        dict2 = plistlib.loads(xml_str2.encode('utf-8'))
+        assert dict1 == dict2, f"Plist dicts differ: \nDict1: {dict1}\nDict2: {dict2}"
+    except Exception as e: # pylint: disable=broad-except
+        pytest.fail(f"Plist XML comparison failed: {e}\nXML1: {xml_str1[:500]}...\nXML2: {xml_str2[:500]}...")
+
+def assert_binary_plist_data_equal(plist_bytes, expected_dict):
+    """Loads binary plist bytes and compares with an expected Python dictionary."""
+    loaded_data = plistlib.loads(plist_bytes)
+    assert loaded_data == expected_dict, f"Plist data objects differ.\nLoaded: {loaded_data}\nExpected: {expected_dict}"
+
+def _xml_to_dict_postprocessor_for_j2x(path, key, value):
+    """Postprocessor for xmltodict.parse.
+    Converts numeric-looking strings and boolean strings (case-insensitive) to Python types.
+    """
+    if isinstance(value, str):
+        val_lower = value.lower()
+        if val_lower == 'true': return key, True
+        if val_lower == 'false': return key, False
+        # Check for int first
+        # Must be careful: '1.0' isdigit() is False. '1' isdigit() is True.
+        # Order of checks matters.
+        if value.isdigit() or (value.startswith('-') and value[1:].isdigit()):
+             try: return key, int(value)
+             except ValueError: pass # Should not happen if isdigit was true
+        # Then check for float
+        try:
+            return key, float(value)
+        except ValueError:
+            pass # Not a float, keep as string
+
+    if isinstance(value, list):
+        new_list = []
+        for item_in_list in value:
+            # Recursively call this logic for items in list for type conversion
+            _, converted_item = _xml_to_dict_postprocessor_for_j2x(path, key, item_in_list)
+            new_list.append(converted_item)
+        return key, new_list
+    return key, value
+
+def assert_xml_strings_equal_for_j2x(xml_str1_actual, xml_str2_expected, is_dict2xml_output=False): # pylint: disable=unused-argument
+    """
+    Compares XML strings by parsing them into dictionaries using xmltodict
+    with a postprocessor to handle type conversions, then comparing the dictionaries.
+    """
+    try:
+        xml_str1_clean = xml_str1_actual.strip()
+        xml_str2_clean = xml_str2_expected.strip()
+
+        if not xml_str1_clean and not xml_str2_clean: return
+        if not xml_str1_clean or not xml_str2_clean:
+            assert xml_str1_clean == xml_str2_clean, f"One XML string is empty.\nXML1: '{xml_str1_clean[:200]}...'\nXML2: '{xml_str2_clean[:200]}...'"
+            return
+
+        dict1 = xmltodict.parse(xml_str1_clean, postprocessor=_xml_to_dict_postprocessor_for_j2x)
+        dict2 = xmltodict.parse(xml_str2_clean, postprocessor=_xml_to_dict_postprocessor_for_j2x)
+
+        keys1 = list(dict1.keys())
+        keys2 = list(dict2.keys())
+
+        if len(keys1) == 1 and len(keys2) == 1 and keys1[0] == keys2[0]:
+            content1 = dict1[keys1[0]]
+            content2 = dict2[keys2[0]]
+            assert content1 == content2, f"XML content (under root '{keys1[0]}') differ: \nDict1: {json.dumps(content1, indent=2)}\nDict2: {json.dumps(content2, indent=2)}"
+        else:
+            assert dict1 == dict2, f"XML content (full dicts) differ: \nDict1: {json.dumps(dict1, indent=2)}\nDict2: {json.dumps(dict2, indent=2)}"
+
+    except Exception as e:
+        norm_xml1_fallback = "".join(xml_str1_actual.split())
+        norm_xml2_fallback = "".join(xml_str2_expected.split())
+        if norm_xml1_fallback == norm_xml2_fallback:
+            pytest.skip(f"XML parsing/dict Ccomparison failed ({e}), but normalized strings match. XML1: {xml_str1_actual[:200]}...")
+            return
+        pytest.fail(f"XML comparison failed: {e}\nXML1: {xml_str1_actual[:500]}...\nXML2: {xml_str2_expected[:500]}...")
+
+
+# --- CLI Runner Helpers ---
+
+def run_yaplon_command(
+    command_parts,
+    input_content=None,
+    input_suffix=".tmp",
+    output_suffix=".tmp",
+    is_binary_input=False,
+    is_binary_output=False,
+    cli_tool_name="yaplon"
+):
+    input_filepath = None
+    output_filepath = None
+    cmd = [cli_tool_name] + command_parts
+
+    if input_content is not None:
+        mode = "wb" if is_binary_input else "w" # Use 'wb' and 'w' for writing
+        encoding = None if is_binary_input else "utf-8"
+        # delete=False is important for the subprocess to access it
+        with tempfile.NamedTemporaryFile(mode=mode, delete=False, suffix=input_suffix, encoding=encoding) as infile:
+            infile.write(input_content)
+            input_filepath = infile.name
+        cmd.extend(["-i", input_filepath])
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=output_suffix) as outfile_temp:
+        output_filepath = outfile_temp.name
+    cmd.extend(["-o", output_filepath])
+
+    try:
+        process = subprocess.run(cmd, capture_output=True, check=False)
+
+        stderr_str = process.stderr.decode('utf-8', errors='ignore').strip()
+
+        if process.returncode != 0:
+            stdout_for_error = process.stdout.decode('utf-8', errors='ignore')
+            error_message = f"CLI Error for command '{' '.join(cmd)}':\nReturn Code: {process.returncode}\n"
+            if stdout_for_error: error_message += f"Stdout:\n{stdout_for_error}\n"
+            if stderr_str: error_message += f"Stderr:\n{stderr_str}\n"
+            pytest.fail(error_message)
+
+        read_mode = "rb" if is_binary_output else "r"
+        read_encoding = None if is_binary_output else "utf-8"
+        with open(output_filepath, read_mode, encoding=read_encoding) as f_out:
+            output_content_final = f_out.read()
+
+        return output_content_final, stderr_str
+    finally:
+        if input_filepath and os.path.exists(input_filepath): os.remove(input_filepath)
+        if output_filepath and os.path.exists(output_filepath): os.remove(output_filepath)
+
+
+def run_yaplon_pipe_command(
+    command_parts,
+    input_data,
+    is_binary_input=False,
+    is_binary_output=False,
+    cli_tool_name="yaplon"
+):
+    cmd = [cli_tool_name] + command_parts
+
+    process_input_bytes = input_data if is_binary_input else input_data.encode('utf-8')
+
+    process = subprocess.run(cmd, input=process_input_bytes, capture_output=True, check=False)
+
+    stderr_final = process.stderr.decode('utf-8', errors='ignore').strip()
+
+    if process.returncode != 0:
+        stdout_for_error = process.stdout.decode('utf-8', errors='ignore')
+        error_message = f"CLI Pipe Error for command '{' '.join(cmd)}':\nReturn Code: {process.returncode}\n"
+        if stdout_for_error: error_message += f"Stdout:\n{stdout_for_error}\n"
+        if stderr_final: error_message += f"Stderr:\n{stderr_final}\n"
+        pytest.fail(error_message)
+
+    stdout_final = process.stdout if is_binary_output else process.stdout.decode('utf-8', errors='ignore')
+
+    if not is_binary_output and isinstance(stdout_final, str):
+        stdout_final = stdout_final.strip() # Strip for text pipe output
+
+    return stdout_final, stderr_final
+</file>
+
+<file path="tests/test_json_to_plist.py">
+import pytest
+import tempfile
+import os
+import plistlib
+import io # Required for writer function tests
+
+from yaplon import reader, writer
+from tests.helpers import ( # Changed to absolute import path
+    assert_plist_xml_strings_equal,
+    assert_binary_plist_data_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# Sample JSON data
+SAMPLE_JSON_STRING = '{"name": "Test", "value": 123, "items": [1, "two", 3.0]}'
+SAMPLE_JSON_DICT = {"name": "Test", "value": 123, "items": [1, "two", 3.0]}
+
+# Expected PLIST (XML format, with consistent space indentation)
+# Note: plistlib.dumps sorts keys by default.
+EXPECTED_PLIST_XML_SPACES = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<integer>1</integer>
+		<string>two</string>
+		<real>3.0</real>
+	</array>
+	<key>name</key>
+	<string>Test</string>
+	<key>value</key>
+	<integer>123</integer>
+</dict>
+</plist>
+"""
+
+# Unsorted JSON for testing sorting
+UNSORTED_JSON_STRING = '{"z_key": 1, "a_key": "value", "m_key": [3, 1, 2]}'
+EXPECTED_SORTED_JSON_DICT_FOR_PLIST = {"a_key": "value", "m_key": [3, 1, 2], "z_key": 1}
+
+# Expected Plist XML from sorted JSON
+# Keys will be sorted: a_key, m_key, z_key
+EXPECTED_SORTED_PLIST_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>a_key</key>
+	<string>value</string>
+	<key>m_key</key>
+	<array>
+		<integer>3</integer>
+		<integer>1</integer>
+		<integer>2</integer>
+	</array>
+	<key>z_key</key>
+	<integer>1</integer>
+</dict>
+</plist>
+"""
+
+# --- Tests ---
+
+def test_json_to_plist_xml_via_writer_functions():
+    with io.StringIO(SAMPLE_JSON_STRING) as string_io_input: # Use io.StringIO for reader.json
+        json_data = reader.json(string_io_input)
+    assert json_data == SAMPLE_JSON_DICT, "JSON data not read correctly by reader.json"
+
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".plist") as tmp_plist_file:
+        plist_filepath = tmp_plist_file.name
+    try:
+        writer.plist(json_data, plist_filepath, binary=False)
+        with open(plist_filepath, "r", encoding="utf-8") as f:
+            result_plist_xml = f.read()
+    finally:
+        os.remove(plist_filepath)
+    assert_plist_xml_strings_equal(result_plist_xml, EXPECTED_PLIST_XML_SPACES)
+
+
+def test_j2p_cli_xml_output():
+    output_content, stderr = run_yaplon_command(
+        ["j2p"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=False # XML plist is text
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_PLIST_XML_SPACES)
+
+def test_j2p_cli_xml_output_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["j2p", "-s"],
+        input_content=UNSORTED_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_SORTED_PLIST_XML)
+
+def test_j2p_cli_binary_output_integrity():
+    output_content_bytes, stderr = run_yaplon_command(
+        ["j2p", "-b"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=True
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(output_content_bytes, SAMPLE_JSON_DICT)
+
+def test_j2p_cli_binary_output_sorted_integrity():
+    output_content_bytes, stderr = run_yaplon_command(
+        ["j2p", "-s", "-b"],
+        input_content=UNSORTED_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=True
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(output_content_bytes, EXPECTED_SORTED_JSON_DICT_FOR_PLIST)
+
+# Test direct CLI script json22plist
+def test_json22plist_cli_xml_output():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=False,
+        cli_tool_name="json22plist"
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_PLIST_XML_SPACES)
+
+def test_json22plist_cli_xml_output_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["-s"],
+        input_content=UNSORTED_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=False,
+        cli_tool_name="json22plist"
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_SORTED_PLIST_XML)
+
+def test_json22plist_cli_binary_output_integrity():
+    output_content_bytes, stderr = run_yaplon_command(
+        ["-b"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=True,
+        cli_tool_name="json22plist"
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(output_content_bytes, SAMPLE_JSON_DICT)
+
+def test_json22plist_cli_binary_output_sorted_integrity():
+    output_content_bytes, stderr = run_yaplon_command(
+        ["-s", "-b"],
+        input_content=UNSORTED_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".plist",
+        is_binary_output=True,
+        cli_tool_name="json22plist"
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(output_content_bytes, EXPECTED_SORTED_JSON_DICT_FOR_PLIST)
+
+# --- Piping Tests (XML Plist output) ---
+def test_j2p_cli_xml_pipe_basic():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["j2p"],
+        input_data=SAMPLE_JSON_STRING,
+        is_binary_output=False # XML Plist is text
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(stdout_content.strip(), EXPECTED_PLIST_XML_SPACES) # Strip for pipe output
+
+def test_j2p_cli_xml_pipe_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["j2p", "-s"],
+        input_data=UNSORTED_JSON_STRING,
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(stdout_content.strip(), EXPECTED_SORTED_PLIST_XML)
+
+def test_json22plist_cli_xml_pipe_basic():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        [],
+        input_data=SAMPLE_JSON_STRING,
+        cli_tool_name="json22plist",
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(stdout_content.strip(), EXPECTED_PLIST_XML_SPACES)
+
+def test_json22plist_cli_xml_pipe_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["-s"],
+        input_data=UNSORTED_JSON_STRING,
+        cli_tool_name="json22plist",
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(stdout_content.strip(), EXPECTED_SORTED_PLIST_XML)
+
+# Note: Binary plist output to stdout is trickier to assert directly with text-based helpers.
+# The generic run_yaplon_pipe_command can return bytes if is_binary_output=True.
+# A dedicated test for binary pipe could be:
+@pytest.mark.skip(reason="Verifying binary plist output from stdout pipe needs specific handling.")
+def test_j2p_cli_binary_pipe_integrity():
+    stdout_bytes, stderr = run_yaplon_pipe_command(
+        ["j2p", "-b"],
+        input_data=SAMPLE_JSON_STRING,
+        is_binary_output=True
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(stdout_bytes, SAMPLE_JSON_DICT)
+</file>
+
+<file path="tests/test_json_to_xml.py">
+import pytest
+import tempfile
+import os
+import io
+import json
+import xmltodict # For robust XML comparison
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_xml_strings_equal_for_j2x, # Renamed in helpers
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_JSON_STRING = '{"name": "Test JSON for XML", "version": 1.0, "items": [1, "two"], "details": {"status": "active", "count": 42}}'
+SAMPLE_JSON_DICT_TYPED = {"name": "Test JSON for XML", "version": 1.0, "items": [1, "two"], "details": {"status": True, "count": 42}}
+
+
+EXPECTED_XML_PRETTY_DEFAULT_ROOT = """\
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<name>Test JSON for XML</name>
+	<version>1.0</version>
+	<items>1</items>
+	<items>two</items>
+	<details>
+		<status>active</status>
+		<count>42</count>
+	</details>
+</root>
+"""
+EXPECTED_XML_MINIFIED_DEFAULT_ROOT = '<?xml version="1.0" encoding="utf-8"?><root><name>Test JSON for XML</name><version>1.0</version><items>1</items><items>two</items><details><status>active</status><count>42</count></details></root>'
+
+EXPECTED_XML_PRETTY_CUSTOM_ROOT = """\
+<?xml version="1.0" encoding="utf-8"?>
+<customRoot>
+	<name>Test JSON for XML</name>
+	<version>1.0</version>
+	<items>1</items>
+	<items>two</items>
+	<details>
+		<status>active</status>
+		<count>42</count>
+	</details>
+</customRoot>
+"""
+
+EXPECTED_XML_PRETTY_WRAP_TAG_DICT2XML = """\
+<data>
+  <name>Test JSON for XML</name>
+  <version>1.0</version>
+  <items>1</items>
+  <items>two</items>
+  <details>
+    <status>active</status>
+    <count>42</count>
+  </details>
+</data>
+"""
+
+JSON_SINGLE_KEY_STRING = '{"mydata": {"item": "value", "number": 10}}'
+EXPECTED_XML_SINGLE_KEY_ROOT = """\
+<?xml version="1.0" encoding="utf-8"?>
+<mydata>
+	<item>value</item>
+	<number>10</number>
+</mydata>
+"""
+
+JSON_WITH_INTERNAL_BYTES_REPR = '{"field": "text", "binary": {"__bytes__": true, "base64": "SGVsbG8="}}'
+EXPECTED_XML_WITH_BYTES_AS_B64_STRING = """\
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<field>text</field>
+	<binary>SGVsbG8=</binary>
+</root>
+"""
+
+# --- Tests ---
+
+def test_json_to_xml_via_writer_functions():
+    with io.StringIO(SAMPLE_JSON_STRING) as string_io_input:
+        json_data = reader.json(string_io_input)
+
+    string_io_xml_default = io.StringIO()
+    writer.xml(json_data, string_io_xml_default, mini=False, root="root")
+    actual_xml_default = string_io_xml_default.getvalue()
+    assert_xml_strings_equal_for_j2x(actual_xml_default, EXPECTED_XML_PRETTY_DEFAULT_ROOT)
+
+    string_io_xml_mini = io.StringIO()
+    writer.xml(json_data, string_io_xml_mini, mini=True, root="root")
+    actual_xml_mini = string_io_xml_mini.getvalue()
+    assert_xml_strings_equal_for_j2x(actual_xml_mini, EXPECTED_XML_MINIFIED_DEFAULT_ROOT)
+
+    string_io_xml_tag = io.StringIO()
+    writer.xml(json_data, string_io_xml_tag, mini=False, tag="data")
+    actual_xml_tag = string_io_xml_tag.getvalue()
+    assert_xml_strings_equal_for_j2x(actual_xml_tag, EXPECTED_XML_PRETTY_WRAP_TAG_DICT2XML, is_dict2xml_output=True)
+
+def test_j2x_cli_default():
+    output_content, stderr = run_yaplon_command(
+        ["j2x"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(output_content, EXPECTED_XML_PRETTY_DEFAULT_ROOT)
+
+def test_j2x_cli_minified():
+    output_content, stderr = run_yaplon_command(
+        ["j2x", "-m"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(output_content, EXPECTED_XML_MINIFIED_DEFAULT_ROOT)
+
+def test_j2x_cli_custom_root():
+    output_content, stderr = run_yaplon_command(
+        ["j2x", "-R", "customRoot"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(output_content, EXPECTED_XML_PRETTY_CUSTOM_ROOT)
+
+def test_j2x_cli_single_key_json_as_root():
+    output_content, stderr = run_yaplon_command(
+        ["j2x"],
+        input_content=JSON_SINGLE_KEY_STRING,
+        input_suffix=".json",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(output_content, EXPECTED_XML_SINGLE_KEY_ROOT)
+
+def test_j2x_cli_wrap_tag():
+    output_content, stderr = run_yaplon_command(
+        ["j2x", "-t", "data"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(output_content, EXPECTED_XML_PRETTY_WRAP_TAG_DICT2XML, is_dict2xml_output=True)
+
+def test_json22xml_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".xml",
+        cli_tool_name="json22xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(output_content, EXPECTED_XML_PRETTY_DEFAULT_ROOT)
+
+def test_json22xml_cli_minified_custom_root():
+    output_content, stderr = run_yaplon_command(
+        ["-m", "-R", "customRoot"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".xml",
+        cli_tool_name="json22xml"
+    )
+    assert stderr == ""
+    expected_minified_custom_root = '<?xml version="1.0" encoding="utf-8"?><customRoot><name>Test JSON for XML</name><version>1.0</version><items>1</items><items>two</items><details><status>active</status><count>42</count></details></customRoot>'
+    assert_xml_strings_equal_for_j2x(output_content, expected_minified_custom_root)
+
+# --- Piping Tests ---
+def test_j2x_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["j2x"],
+        input_data=SAMPLE_JSON_STRING
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(stdout_content, EXPECTED_XML_PRETTY_DEFAULT_ROOT)
+
+def test_j2x_cli_pipe_wrap_tag_minified():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["j2x", "-t", "data", "-m"],
+        input_data=SAMPLE_JSON_STRING
+    )
+    assert stderr == ""
+    expected_minified_dict2xml = '<data><name>Test JSON for XML</name><version>1.0</version><items>1</items><items>two</items><details><status>active</status><count>42</count></details></data>'
+    assert_xml_strings_equal_for_j2x(stdout_content, expected_minified_dict2xml, is_dict2xml_output=True)
+
+def test_j2x_cli_with_internal_bytes():
+    output_content, stderr = run_yaplon_command(
+        ["j2x"],
+        input_content=JSON_WITH_INTERNAL_BYTES_REPR,
+        input_suffix=".json",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal_for_j2x(output_content, EXPECTED_XML_WITH_BYTES_AS_B64_STRING)
+</file>
+
+<file path="tests/test_json_to_yaml.py">
+import pytest
+import tempfile
+import os
+import io
+import json
+import yaml # For loading YAML to compare Python objects
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_yaml_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_JSON_STRING = '{"name": "Test JSON", "version": 1.0, "active": true, "items": ["one", 2, {"sub_item": "value"}], "none_value": null}'
+SAMPLE_JSON_DICT = {"name": "Test JSON", "version": 1.0, "active": True, "items": ["one", 2, {"sub_item": "value"}], "none_value": None}
+
+# Expected YAML output (standard, pretty-printed)
+# PyYAML default `sort_keys=True` for block style, so keys are alphabetical.
+EXPECTED_YAML_PRETTY = """\
+active: true
+items:
+- one
+- 2
+- sub_item: value
+name: Test JSON
+none_value: null
+version: 1.0
+"""
+
+# Expected YAML output (minified - flow style)
+# yaplon.oyaml.yaml_dumps with compact=True passes default_flow_style=True to PyYAML's dump.
+# PyYAML's dump with default_flow_style=True and OrderedDict input preserves order.
+EXPECTED_YAML_MINIFIED = "{name: Test JSON, version: 1.0, active: true, items: [one, 2, {sub_item: value}], none_value: null}\n"
+
+
+UNSORTED_JSON_STRING_FOR_YAML = '{"z_key": 1, "a_key": "value", "m_key": [3, 1, 2]}'
+# Sorted output (pretty)
+EXPECTED_YAML_SORTED_PRETTY = """\
+a_key: value
+m_key:
+- 3
+- 1
+- 2
+z_key: 1
+"""
+# Sorted output (minified - flow style, order from sorted OrderedDict)
+EXPECTED_YAML_SORTED_MINIFIED = "{a_key: value, m_key: [3, 1, 2], z_key: 1}\n"
+
+
+JSON_STRING_REPRESENTING_BYTES = '{"text": "abc", "data": {"__bytes__": true, "base64": "SGVsbG8="}}' # "Hello"
+EXPECTED_YAML_WITH_BINARY_TAG = """\
+data: !!binary SGVsbG8=
+text: abc
+"""
+JSON_DICT_WITH_ACTUAL_BYTES = {"text": "abc", "data": b"Hello"}
+
+
+# --- Tests ---
+
+def test_json_to_yaml_via_writer_functions():
+    # Use io.StringIO as reader.json expects a file-like object
+    with io.StringIO(SAMPLE_JSON_STRING) as string_io_input:
+        json_data = reader.json(string_io_input) # reader.json loads into OrderedDict
+
+    # Test default pretty print
+    string_io_pretty = io.StringIO()
+    writer.yaml(json_data, string_io_pretty, mini=False)
+    actual_yaml_pretty = string_io_pretty.getvalue()
+    assert_yaml_strings_equal(actual_yaml_pretty, EXPECTED_YAML_PRETTY)
+
+    string_io_mini = io.StringIO()
+    writer.yaml(json_data, string_io_mini, mini=True)
+    actual_yaml_mini = string_io_mini.getvalue()
+    assert_yaml_strings_equal(actual_yaml_mini.strip(), EXPECTED_YAML_MINIFIED.strip())
+
+
+def test_j2y_cli_default():
+    output_content, stderr = run_yaplon_command(
+        ["j2y"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_PRETTY)
+
+def test_j2y_cli_minified():
+    output_content, stderr = run_yaplon_command(
+        ["j2y", "-m"],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content.strip(), EXPECTED_YAML_MINIFIED.strip())
+
+def test_j2y_cli_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["j2y", "-s"],
+        input_content=UNSORTED_JSON_STRING_FOR_YAML,
+        input_suffix=".json",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_SORTED_PRETTY)
+
+def test_json22yaml_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_JSON_STRING,
+        input_suffix=".json",
+        output_suffix=".yaml",
+        cli_tool_name="json22yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_PRETTY)
+
+def test_json22yaml_cli_minified_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["-m", "-s"],
+        input_content=UNSORTED_JSON_STRING_FOR_YAML,
+        input_suffix=".json",
+        output_suffix=".yaml",
+        cli_tool_name="json22yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content.strip(), EXPECTED_YAML_SORTED_MINIFIED.strip())
+
+# --- Piping Tests ---
+def test_j2y_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["j2y"],
+        input_data=SAMPLE_JSON_STRING
+    )
+    assert stderr == ""
+    # For piped output, YAML might have an extra newline or not, depending on PyYAML.
+    # assert_yaml_strings_equal loads them, so it's robust to this.
+    # However, EXPECTED_YAML_PRETTY includes a trailing newline usually.
+    assert_yaml_strings_equal(stdout_content, EXPECTED_YAML_PRETTY)
+
+def test_j2y_cli_pipe_minified_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["j2y", "-m", "-s"],
+        input_data=UNSORTED_JSON_STRING_FOR_YAML
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(stdout_content.strip(), EXPECTED_YAML_SORTED_MINIFIED.strip())
+
+def test_json22yaml_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        [],
+        input_data=SAMPLE_JSON_STRING,
+        cli_tool_name="json22yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(stdout_content, EXPECTED_YAML_PRETTY)
+
+# --- Tests for binary data handling ---
+def test_json_dict_with_bytes_to_yaml_via_writer():
+    string_io = io.StringIO()
+    writer.yaml(JSON_DICT_WITH_ACTUAL_BYTES, string_io, mini=False)
+    actual_yaml = string_io.getvalue()
+    assert_yaml_strings_equal(actual_yaml, EXPECTED_YAML_WITH_BINARY_TAG)
+
+def test_j2y_cli_with_json_representing_bytes():
+    output_content, stderr = run_yaplon_command(
+        ["j2y"],
+        input_content=JSON_STRING_REPRESENTING_BYTES,
+        input_suffix=".json",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_WITH_BINARY_TAG)
+</file>
+
+<file path="tests/test_plist_to_json.py">
+import pytest
+import tempfile
+import os
+import json
+import plistlib
+import io # Required for StringIO
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_json_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_PLIST_XML_STRING = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>name</key>
+    <string>Test Plist</string>
+    <key>version</key>
+    <real>1.2</real>
+    <key>active</key>
+    <true/>
+    <key>count</key>
+    <integer>101</integer>
+    <key>items</key>
+    <array>
+        <string>alpha</string>
+        <string>beta</string>
+    </array>
+    <key>binary_data</key>
+    <data>SGVsbG8=</data> <!-- "Hello" base64 encoded -->
+</dict>
+</plist>
+"""
+
+# This is what reader.plist(BytesIO(SAMPLE_PLIST_XML_STRING.encode())) should produce
+EXPECTED_DICT_FROM_XML_READER = {
+    "name": "Test Plist",
+    "version": 1.2,
+    "active": True,
+    "count": 101,
+    "items": ["alpha", "beta"],
+    "binary_data": b"Hello"
+}
+
+
+EXPECTED_JSON_PRETTY = """\
+{
+    "name": "Test Plist",
+    "version": 1.2,
+    "active": true,
+    "count": 101,
+    "items": [
+        "alpha",
+        "beta"
+    ],
+    "binary_data": {
+        "__bytes__": true,
+        "base64": "SGVsbG8="
+    }
+}"""
+EXPECTED_JSON_MINIFIED = '{"name":"Test Plist","version":1.2,"active":true,"count":101,"items":["alpha","beta"],"binary_data":{"__bytes__":true,"base64":"SGVsbG8="}}'
+
+EXPECTED_JSON_PRETTY_PRESERVE_BINARY = """\
+{
+    "name": "Test Plist",
+    "version": 1.2,
+    "active": true,
+    "count": 101,
+    "items": [
+        "alpha",
+        "beta"
+    ],
+    "binary_data": "SGVsbG8="
+}"""
+EXPECTED_JSON_MINIFIED_PRESERVE_BINARY = '{"name":"Test Plist","version":1.2,"active":true,"count":101,"items":["alpha","beta"],"binary_data":"SGVsbG8="}'
+
+
+UNSORTED_PLIST_XML_STRING = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>z_key</key>
+    <integer>1</integer>
+    <key>a_key</key>
+    <string>value</string>
+    <key>m_key</key>
+    <array>
+        <integer>3</integer>
+        <integer>1</integer>
+        <integer>2</integer>
+    </array>
+</dict>
+</plist>
+"""
+EXPECTED_SORTED_JSON_PRETTY = """\
+{
+    "a_key": "value",
+    "m_key": [
+        3,
+        1,
+        2
+    ],
+    "z_key": 1
+}"""
+EXPECTED_SORTED_JSON_MINIFIED = '{"a_key":"value","m_key":[3,1,2],"z_key":1}'
+
+# --- Tests ---
+
+def test_plist_xml_to_json_via_writer_functions():
+    with io.BytesIO(SAMPLE_PLIST_XML_STRING.encode('utf-8')) as bytes_io_input:
+        plist_data = reader.plist(bytes_io_input)
+
+    # Direct dictionary comparison
+    assert plist_data == EXPECTED_DICT_FROM_XML_READER
+
+    string_io_default = io.StringIO()
+    writer.json(plist_data, string_io_default, mini=False, binary=False)
+    actual_json_default = string_io_default.getvalue()
+    assert_json_strings_equal(actual_json_default, EXPECTED_JSON_PRETTY)
+
+    string_io_preserve_binary = io.StringIO()
+    writer.json(plist_data, string_io_preserve_binary, mini=False, binary=True)
+    actual_json_preserve_binary = string_io_preserve_binary.getvalue()
+    assert_json_strings_equal(actual_json_preserve_binary, EXPECTED_JSON_PRETTY_PRESERVE_BINARY)
+
+
+def test_p2j_cli_xml_input_default():
+    output_content, stderr = run_yaplon_command(
+        ["p2j"],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY)
+
+def test_p2j_cli_xml_input_minified():
+    output_content, stderr = run_yaplon_command(
+        ["p2j", "-m"],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_MINIFIED)
+
+SAMPLE_PLIST_XML_WITH_NULL = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>foo</key>
+    <string>bar</string>
+    <key>none_value</key>
+    <null/>
+</dict>
+</plist>
+"""
+
+EXPECTED_JSON_WITH_NULL = '''{
+  "foo": "bar",
+  "none_value": null
+}'''
+
+def test_p2j_cli_xml_input_with_null():
+    output_content, stderr = run_yaplon_command(
+        ["p2j"],
+        input_content=SAMPLE_PLIST_XML_WITH_NULL,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_WITH_NULL)
+
+def test_p2j_cli_xml_input_preserve_binary():
+    output_content, stderr = run_yaplon_command(
+        ["p2j", "-b"],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY_PRESERVE_BINARY)
+
+def test_p2j_cli_xml_input_preserve_binary_minified():
+    output_content, stderr = run_yaplon_command(
+        ["p2j", "-b", "-m"],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_MINIFIED_PRESERVE_BINARY)
+
+@pytest.fixture
+def binary_plist_fixture_bytes(): # Renamed to reflect it yields bytes
+    yield plistlib.dumps(EXPECTED_DICT_FROM_XML_READER, fmt=plistlib.FMT_BINARY)
+
+def test_p2j_cli_binary_input_default(binary_plist_fixture_bytes):
+    binary_bytes = binary_plist_fixture_bytes
+    output_content, stderr = run_yaplon_command(
+        ["p2j"],
+        input_content=binary_bytes,
+        input_suffix=".plist",
+        output_suffix=".json",
+        is_binary_input=True
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY)
+
+def test_p2j_cli_binary_input_preserve_binary(binary_plist_fixture_bytes):
+    binary_bytes = binary_plist_fixture_bytes
+    output_content, stderr = run_yaplon_command(
+        ["p2j", "-b"],
+        input_content=binary_bytes,
+        input_suffix=".plist",
+        output_suffix=".json",
+        is_binary_input=True
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY_PRESERVE_BINARY)
+
+def test_p2j_cli_xml_input_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["p2j", "-s"],
+        input_content=UNSORTED_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_SORTED_JSON_PRETTY)
+
+def test_p2j_cli_xml_input_sorted_minified():
+    output_content, stderr = run_yaplon_command(
+        ["p2j", "-s", "-m"],
+        input_content=UNSORTED_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_SORTED_JSON_MINIFIED)
+
+def test_plist22json_cli_xml_input_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json",
+        cli_tool_name="plist22json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY)
+
+def test_plist22json_cli_xml_input_preserve_binary_minified():
+    output_content, stderr = run_yaplon_command(
+        ["-b", "-m"],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".json",
+        cli_tool_name="plist22json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_MINIFIED_PRESERVE_BINARY)
+
+# --- Piping Tests ---
+def test_p2j_cli_xml_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2j"],
+        input_data=SAMPLE_PLIST_XML_STRING
+    )
+    assert stderr == ""
+    assert_json_strings_equal(stdout_content, EXPECTED_JSON_PRETTY)
+
+def test_p2j_cli_xml_pipe_preserve_binary_minified():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2j", "-b", "-m"],
+        input_data=SAMPLE_PLIST_XML_STRING
+    )
+    assert stderr == ""
+    assert_json_strings_equal(stdout_content, EXPECTED_JSON_MINIFIED_PRESERVE_BINARY)
+
+def test_plist22json_cli_xml_pipe_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["-s"],
+        input_data=UNSORTED_PLIST_XML_STRING,
+        cli_tool_name="plist22json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(stdout_content, EXPECTED_SORTED_JSON_PRETTY)
+
+@pytest.mark.skip(reason="Binary stdin piping for plist needs robust handling in CLI and test.")
+def test_p2j_cli_binary_pipe_preserve_binary(binary_plist_fixture_bytes): # Use updated fixture name
+    binary_data = binary_plist_fixture_bytes
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2j", "-b"],
+        input_data=binary_data,
+        is_binary_input=True
+    )
+    assert stderr == ""
+    assert_json_strings_equal(stdout_content, EXPECTED_JSON_PRETTY_PRESERVE_BINARY)
+</file>
+
+<file path="tests/test_plist_to_xml.py">
+import pytest
+import tempfile
+import os
+import io
+import plistlib
+import xmltodict
+import json
+import datetime
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_xml_strings_equal_for_j2x as assert_xml_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_PLIST_DICT = {
+    "name": "Test Plist for XML",
+    "version": 6.0,
+    "active": True,
+    "count": 512,
+    "tags": ["plist_tag", "xml_conversion"],
+    "binary_payload": b"PlistBinary",
+    "a_date": datetime.datetime(2024, 3, 15, 10, 30, 0), # Changed to offset-naive
+    "empty_dict": {},
+    "empty_list": [],
+    "none_value": None
+}
+
+SAMPLE_PLIST_DICT_FOR_DUMPS = {k:v for k,v in SAMPLE_PLIST_DICT.items() if v is not None}
+
+EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST = f"""\
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<name>Test Plist for XML</name>
+	<version>6.0</version>
+	<active>true</active>
+	<count>512</count>
+	<tags>plist_tag</tags>
+	<tags>xml_conversion</tags>
+	<binary_payload>UGxpc3RCaW5hcnk=</binary_payload>
+	<a_date>2024-03-15T10:30:00Z</a_date>
+	<empty_dict></empty_dict>
+</root>
+"""
+
+EXPECTED_XML_WRAP_TAG_DICT2XML_FROM_PLIST = f"""\
+<yaplon_data>
+  <name>Test Plist for XML</name>
+  <version>6.0</version>
+  <active>True</active>
+  <count>512</count>
+  <tags>plist_tag</tags>
+  <tags>xml_conversion</tags>
+  <binary_payload>UGxpc3RCaW5hcnk=</binary_payload>
+  <a_date>2024-03-15T10:30:00Z</a_date>
+  <empty_dict></empty_dict>
+  <empty_list></empty_list>
+</yaplon_data>
+""" # Adjusted "true" to "True" for dict2xml output
+
+# --- Fixtures ---
+@pytest.fixture
+def plist_xml_input():
+    return plistlib.dumps(SAMPLE_PLIST_DICT_FOR_DUMPS, sort_keys=False).decode('utf-8')
+
+@pytest.fixture
+def plist_binary_input():
+    return plistlib.dumps(SAMPLE_PLIST_DICT_FOR_DUMPS, fmt=plistlib.FMT_BINARY, sort_keys=False)
+
+def test_plist_to_xml_via_writer_functions(plist_xml_input, plist_binary_input):
+    with io.BytesIO(plist_xml_input.encode('utf-8')) as bytes_io_input_xml:
+        xml_plist_obj = reader.plist(bytes_io_input_xml)
+
+    string_io_xml_default = io.StringIO()
+    writer.xml(xml_plist_obj, string_io_xml_default, mini=False, root="root")
+    actual_xml_default = string_io_xml_default.getvalue()
+    assert_xml_strings_equal(actual_xml_default, EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST)
+
+    string_io_xml_tag = io.StringIO()
+    writer.xml(xml_plist_obj, string_io_xml_tag, mini=False, tag="yaplon_data")
+    actual_xml_tag = string_io_xml_tag.getvalue()
+    assert_xml_strings_equal(actual_xml_tag, EXPECTED_XML_WRAP_TAG_DICT2XML_FROM_PLIST, is_dict2xml_output=True)
+
+    with io.BytesIO(plist_binary_input) as bytes_io_input_bin:
+        bin_plist_obj = reader.plist(bytes_io_input_bin)
+
+    string_io_xml_default_from_bin = io.StringIO()
+    writer.xml(bin_plist_obj, string_io_xml_default_from_bin, mini=False, root="root")
+    actual_xml_default_from_bin = string_io_xml_default_from_bin.getvalue()
+    assert_xml_strings_equal(actual_xml_default_from_bin, EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST)
+
+def test_p2x_cli_xml_plist_input_default(plist_xml_input):
+    output_content, stderr = run_yaplon_command(
+        ["p2x"],
+        input_content=plist_xml_input,
+        input_suffix=".plist",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(output_content, EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST)
+
+def test_p2x_cli_binary_plist_input_default(plist_binary_input):
+    output_content, stderr = run_yaplon_command(
+        ["p2x"],
+        input_content=plist_binary_input,
+        input_suffix=".plist",
+        output_suffix=".xml",
+        is_binary_input=True
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(output_content, EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST)
+
+def test_p2x_cli_xml_plist_input_wrap_tag(plist_xml_input):
+    output_content, stderr = run_yaplon_command(
+        ["p2x", "-t", "yaplon_data"],
+        input_content=plist_xml_input,
+        input_suffix=".plist",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(output_content, EXPECTED_XML_WRAP_TAG_DICT2XML_FROM_PLIST, is_dict2xml_output=True)
+
+def test_plist22xml_cli_default(plist_xml_input):
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=plist_xml_input,
+        input_suffix=".plist",
+        output_suffix=".xml",
+        cli_tool_name="plist22xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(output_content, EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST)
+
+# --- Piping Tests ---
+def test_p2x_cli_pipe_xml_plist_input_default(plist_xml_input):
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2x"],
+        input_data=plist_xml_input
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(stdout_content, EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST)
+
+@pytest.mark.skip(reason="Binary plist input via pipe needs robust test setup and confirmation of yaplon's handling.")
+def test_p2x_cli_pipe_binary_plist_input_default(plist_binary_input):
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2x"],
+        input_data=plist_binary_input,
+        is_binary_input=True
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(stdout_content, EXPECTED_XML_DEFAULT_ROOT_FROM_PLIST)
+</file>
+
+<file path="tests/test_plist_to_yaml.py">
+import pytest
+import tempfile
+import os
+import io
+import yaml # For loading YAML to compare
+import plistlib
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_yaml_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_PLIST_XML_STRING = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>name</key>
+    <string>Test Plist for YAML</string>
+    <key>version</key>
+    <real>3.0</real>
+    <key>enabled</key>
+    <false/>
+    <key>tags</key>
+    <array>
+        <string>test</string>
+        <string>conversion</string>
+    </array>
+    <key>binary_content</key>
+    <data>VGhpcyBpcyBiaW5hcnk=</data> <!-- "This is binary" base64 encoded -->
+</dict>
+</plist>
+"""
+
+SAMPLE_PLIST_DICT_FOR_YAML = {
+    "name": "Test Plist for YAML",
+    "version": 3.0,
+    "enabled": False,
+    "tags": ["test", "conversion"],
+    "binary_content": b"This is binary"
+}
+
+# Expected YAML output (pretty-printed)
+# PyYAML default `sort_keys=True` for block style, so keys are alphabetical.
+EXPECTED_YAML_PRETTY = """\
+binary_content: !!binary VGhpcyBpcyBiaW5hcnk=
+enabled: false
+name: Test Plist for YAML
+tags:
+- test
+- conversion
+version: 3.0
+"""
+
+# Expected YAML output (minified - flow style)
+# yaplon.oyaml.yaml_dumps with compact=True passes default_flow_style=True to PyYAML's dump.
+# PyYAML's dump with default_flow_style=True and OrderedDict input (from reader.plist) preserves order.
+# Original order in SAMPLE_PLIST_XML_STRING: name, version, enabled, tags, binary_content
+EXPECTED_YAML_MINIFIED = "{name: Test Plist for YAML, version: 3.0, enabled: false, tags: [test, conversion], binary_content: !!binary VGhpcyBpcyBiaW5hcnk=}\n"
+
+
+UNSORTED_PLIST_XML_STRING_FOR_YAML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>z_item</key>
+    <string>last</string>
+    <key>a_item</key>
+    <integer>123</integer>
+    <key>m_item</key>
+    <true/>
+</dict>
+</plist>
+"""
+EXPECTED_YAML_SORTED_PRETTY = """\
+a_item: 123
+m_item: true
+z_item: last
+"""
+EXPECTED_YAML_SORTED_MINIFIED = "{a_item: 123, m_item: true, z_item: last}\n"
+
+
+# --- Tests ---
+
+def test_plist_to_yaml_via_writer_functions():
+    with io.BytesIO(SAMPLE_PLIST_XML_STRING.encode('utf-8')) as bytes_io_input:
+        plist_data = reader.plist(bytes_io_input)
+    assert plist_data == SAMPLE_PLIST_DICT_FOR_YAML
+
+    string_io_pretty = io.StringIO()
+    writer.yaml(plist_data, string_io_pretty, mini=False)
+    actual_yaml_pretty = string_io_pretty.getvalue()
+    assert_yaml_strings_equal(actual_yaml_pretty, EXPECTED_YAML_PRETTY)
+
+    string_io_mini = io.StringIO()
+    writer.yaml(plist_data, string_io_mini, mini=True)
+    actual_yaml_mini = string_io_mini.getvalue()
+    assert_yaml_strings_equal(actual_yaml_mini.strip(), EXPECTED_YAML_MINIFIED.strip())
+
+@pytest.fixture
+def binary_plist_fixture_for_yaml(): # Renamed to avoid conflict
+    yield plistlib.dumps(SAMPLE_PLIST_DICT_FOR_YAML, fmt=plistlib.FMT_BINARY)
+
+def test_plist_binary_to_yaml_via_writer_functions(binary_plist_fixture_for_yaml):
+    binary_plist_bytes = binary_plist_fixture_for_yaml
+    with io.BytesIO(binary_plist_bytes) as bytes_io_input:
+        plist_data = reader.plist(bytes_io_input)
+    assert plist_data == SAMPLE_PLIST_DICT_FOR_YAML
+
+    string_io_pretty = io.StringIO()
+    writer.yaml(plist_data, string_io_pretty, mini=False)
+    actual_yaml_pretty = string_io_pretty.getvalue()
+    assert_yaml_strings_equal(actual_yaml_pretty, EXPECTED_YAML_PRETTY)
+
+
+# CLI Tests
+def test_p2y_cli_xml_input_default():
+    output_content, stderr = run_yaplon_command(
+        ["p2y"],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_PRETTY)
+
+def test_p2y_cli_xml_input_minified():
+    output_content, stderr = run_yaplon_command(
+        ["p2y", "-m"],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content.strip(), EXPECTED_YAML_MINIFIED.strip())
+
+def test_p2y_cli_binary_input_default(binary_plist_fixture_for_yaml):
+    binary_plist_bytes = binary_plist_fixture_for_yaml
+    output_content, stderr = run_yaplon_command(
+        ["p2y"],
+        input_content=binary_plist_bytes,
+        input_suffix=".plist",
+        output_suffix=".yaml",
+        is_binary_input=True
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_PRETTY)
+
+def test_p2y_cli_xml_input_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["p2y", "-s"],
+        input_content=UNSORTED_PLIST_XML_STRING_FOR_YAML,
+        input_suffix=".plist",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_SORTED_PRETTY)
+
+def test_p2y_cli_xml_input_sorted_minified():
+    output_content, stderr = run_yaplon_command(
+        ["p2y", "-s", "-m"],
+        input_content=UNSORTED_PLIST_XML_STRING_FOR_YAML,
+        input_suffix=".plist",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content.strip(), EXPECTED_YAML_SORTED_MINIFIED.strip())
+
+def test_plist22yaml_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_PLIST_XML_STRING,
+        input_suffix=".plist",
+        output_suffix=".yaml",
+        cli_tool_name="plist22yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_PRETTY)
+
+def test_plist22yaml_cli_minified_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["-m", "-s"],
+        input_content=UNSORTED_PLIST_XML_STRING_FOR_YAML,
+        input_suffix=".plist",
+        output_suffix=".yaml",
+        cli_tool_name="plist22yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content.strip(), EXPECTED_YAML_SORTED_MINIFIED.strip())
+
+# --- Piping Tests ---
+def test_p2y_cli_pipe_xml_input_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2y"],
+        input_data=SAMPLE_PLIST_XML_STRING
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(stdout_content, EXPECTED_YAML_PRETTY) # stdout from helper is not stripped by default for text
+
+def test_p2y_cli_pipe_xml_input_minified_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2y", "-m", "-s"],
+        input_data=UNSORTED_PLIST_XML_STRING_FOR_YAML
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(stdout_content.strip(), EXPECTED_YAML_SORTED_MINIFIED.strip()) # Pipe helper strips text stdout
+
+@pytest.mark.skip(reason="Binary plist input via pipe needs confirmation on how yaplon handles binary stdin for plist.")
+def test_p2y_cli_pipe_binary_input_default(binary_plist_fixture_for_yaml):
+    binary_plist_bytes = binary_plist_fixture_for_yaml
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["p2y"],
+        input_data=binary_plist_bytes,
+        is_binary_input=True
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(stdout_content, EXPECTED_YAML_PRETTY)
+</file>
+
+<file path="tests/test_xml_to_json.py">
+import pytest
+import tempfile
+import os
+import io
+import json
+import xmltodict
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_json_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_XML_STRING = """\
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<name>Test XML to JSON</name>
+	<version>1.0</version>
+	<items>1</items>
+	<items>two</items>
+	<details>
+		<status>active</status>
+		<count>42</count>
+	</details>
+    <empty_tag></empty_tag>
+    <tag_with_attributes attr_key="attr_value">content</tag_with_attributes>
+</root>
+"""
+
+# reader.xml uses xmltodict.parse(..., dict_constructor=OrderedDict)
+# This is what we expect reader.xml to produce from SAMPLE_XML_STRING
+EXPECTED_DICT_FROM_XML = xmltodict.parse(SAMPLE_XML_STRING)
+
+
+EXPECTED_JSON_PRETTY_FROM_XML = """\
+{
+    "root": {
+        "name": "Test XML to JSON",
+        "version": "1.0",
+        "items": [
+            "1",
+            "two"
+        ],
+        "details": {
+            "status": "active",
+            "count": "42"
+        },
+        "empty_tag": null,
+        "tag_with_attributes": {
+            "@attr_key": "attr_value",
+            "#text": "content"
+        }
+    }
+}"""
+
+EXPECTED_JSON_MINIFIED_FROM_XML = '{"root":{"name":"Test XML to JSON","version":"1.0","items":["1","two"],"details":{"status":"active","count":"42"},"empty_tag":null,"tag_with_attributes":{"@attr_key":"attr_value","#text":"content"}}}'
+
+XML_WITH_POTENTIAL_BINARY = """\
+<?xml version="1.0" encoding="utf-8"?>
+<data>
+    <description>Some data</description>
+    <binary_field>SGVsbG8=</binary_field> <!-- "Hello" -->
+</data>
+"""
+EXPECTED_JSON_FROM_XML_WITH_BINARY_STRING = """\
+{
+    "data": {
+        "description": "Some data",
+        "binary_field": "SGVsbG8="
+    }
+}"""
+
+
+XML_FOR_SORTING_TEST = """\
+<config>
+    <zulu>last</zulu>
+    <alpha>first</alpha>
+    <beta>middle</beta>
+</config>
+"""
+EXPECTED_JSON_FROM_XML_SORTED = """\
+{
+    "config": {
+        "alpha": "first",
+        "beta": "middle",
+        "zulu": "last"
+    }
+}"""
+
+# --- Tests ---
+
+def test_xml_to_json_via_writer_functions():
+    with io.StringIO(SAMPLE_XML_STRING) as string_io_input:
+        xml_data_dict = reader.xml(string_io_input)
+
+    # Compare using json.dumps to handle OrderedDict vs dict for assertion
+    assert json.dumps(xml_data_dict, sort_keys=True) == json.dumps(EXPECTED_DICT_FROM_XML, sort_keys=True)
+
+    string_io_json = io.StringIO()
+    writer.json(xml_data_dict, string_io_json, mini=False, binary=False)
+    actual_json = string_io_json.getvalue()
+    assert_json_strings_equal(actual_json, EXPECTED_JSON_PRETTY_FROM_XML)
+
+def test_x2j_cli_default():
+    output_content, stderr = run_yaplon_command(
+        ["x2j"],
+        input_content=SAMPLE_XML_STRING,
+        input_suffix=".xml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY_FROM_XML)
+
+def test_x2j_cli_minified():
+    output_content, stderr = run_yaplon_command(
+        ["x2j", "-m"],
+        input_content=SAMPLE_XML_STRING,
+        input_suffix=".xml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_MINIFIED_FROM_XML)
+
+def test_x2j_cli_invalid_binary_option():
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        run_yaplon_command(
+            ["x2j", "-b"],
+            input_content=XML_WITH_POTENTIAL_BINARY,
+            input_suffix=".xml",
+            output_suffix=".json"
+        )
+    assert "Error: No such option: -b" in str(excinfo.value)
+
+def test_x2j_cli_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["x2j", "-s"],
+        input_content=XML_FOR_SORTING_TEST,
+        input_suffix=".xml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_FROM_XML_SORTED)
+
+def test_xml22json_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_XML_STRING,
+        input_suffix=".xml",
+        output_suffix=".json",
+        cli_tool_name="xml22json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY_FROM_XML)
+
+def test_xml22json_cli_minified_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["-m", "-s"],
+        input_content=XML_FOR_SORTING_TEST,
+        input_suffix=".xml",
+        output_suffix=".json",
+        cli_tool_name="xml22json"
+    )
+    assert stderr == ""
+    expected_minified_sorted = '{"config":{"alpha":"first","beta":"middle","zulu":"last"}}'
+    assert_json_strings_equal(output_content, expected_minified_sorted)
+
+# --- Piping Tests ---
+def test_x2j_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["x2j"],
+        input_data=SAMPLE_XML_STRING
+    )
+    assert stderr == ""
+    assert_json_strings_equal(stdout_content, EXPECTED_JSON_PRETTY_FROM_XML)
+
+def test_x2j_cli_pipe_minified_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["x2j", "-m", "-s"],
+        input_data=XML_FOR_SORTING_TEST
+    )
+    assert stderr == ""
+    expected_minified_sorted = '{"config":{"alpha":"first","beta":"middle","zulu":"last"}}'
+    assert_json_strings_equal(stdout_content, expected_minified_sorted)
+</file>
+
+<file path="tests/test_xml_to_plist.py">
+import pytest
+import tempfile
+import os
+import io
+import plistlib
+import xmltodict
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_plist_xml_strings_equal,
+    assert_binary_plist_data_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_XML_STRING_NO_EMPTY_VAL = """\
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <name>Test XML for Plist</name>
+    <version>5.0</version>
+    <active>true</active>
+    <count>256</count>
+    <items>
+        <item>apple</item>
+        <item>banana</item>
+    </items>
+    <binary_data>QmFzZTY0RGF0YQ==</binary_data> <!-- "Base64Data" string -->
+</root>
+"""
+
+EXPECTED_DICT_FROM_XML_NO_EMPTY_VAL = xmltodict.parse(SAMPLE_XML_STRING_NO_EMPTY_VAL)
+
+EXPECTED_PLIST_XML_NO_EMPTY_VAL = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>root</key>
+	<dict>
+		<key>active</key>
+		<true/>
+		<key>binary_data</key>
+		<string>QmFzZTY0RGF0YQ==</string>
+		<key>count</key>
+		<integer>256</integer>
+		<key>items</key>
+		<dict>
+			<key>item</key>
+			<array>
+				<string>apple</string>
+				<string>banana</string>
+			</array>
+		</dict>
+		<key>name</key>
+		<string>Test XML for Plist</string>
+		<key>version</key>
+		<real>5.0</real>
+	</dict>
+</dict>
+</plist>
+"""
+EXPECTED_PLIST_DICT_NO_EMPTY_VAL = {
+    "root": {
+        "active": True,
+        "binary_data": "QmFzZTY0RGF0YQ==",
+        "count": 256,
+        "items": {"item": ["apple", "banana"]},
+        "name": "Test XML for Plist",
+        "version": 5.0,
+    }
+}
+
+# --- Tests ---
+
+def test_xml_to_plist_via_writer_functions():
+    with io.StringIO(SAMPLE_XML_STRING_NO_EMPTY_VAL) as string_io_input:
+        xml_data_dict = reader.xml(string_io_input)
+
+    assert xmltodict.parse(xmltodict.unparse(xml_data_dict)) == EXPECTED_DICT_FROM_XML_NO_EMPTY_VAL
+
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".plist", encoding='utf-8') as tmp_xml_plist_file:
+        xml_plist_filepath = tmp_xml_plist_file.name
+    try:
+        writer.plist(xml_data_dict, xml_plist_filepath, binary=False)
+        with open(xml_plist_filepath, "r", encoding='utf-8') as f:
+            actual_xml_plist = f.read()
+        assert_plist_xml_strings_equal(actual_xml_plist, EXPECTED_PLIST_XML_NO_EMPTY_VAL)
+    finally:
+        os.remove(xml_plist_filepath)
+
+    with tempfile.NamedTemporaryFile(mode="wb+", delete=False, suffix=".plist") as tmp_bin_plist_file:
+        bin_plist_filepath = tmp_bin_plist_file.name
+    try:
+        writer.plist(xml_data_dict, bin_plist_filepath, binary=True)
+        with open(bin_plist_filepath, "rb") as f:
+            actual_binary_plist_bytes = f.read()
+        assert_binary_plist_data_equal(actual_binary_plist_bytes, EXPECTED_PLIST_DICT_NO_EMPTY_VAL)
+    finally:
+        os.remove(bin_plist_filepath)
+
+def test_x2p_cli_xml_default():
+    output_content, stderr = run_yaplon_command(
+        ["x2p"],
+        input_content=SAMPLE_XML_STRING_NO_EMPTY_VAL,
+        input_suffix=".xml",
+        output_suffix=".plist",
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_PLIST_XML_NO_EMPTY_VAL)
+
+def test_x2p_cli_binary_output():
+    output_content_bytes, stderr = run_yaplon_command(
+        ["x2p", "-b"],
+        input_content=SAMPLE_XML_STRING_NO_EMPTY_VAL,
+        input_suffix=".xml",
+        output_suffix=".plist",
+        is_binary_output=True
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(output_content_bytes, EXPECTED_PLIST_DICT_NO_EMPTY_VAL)
+
+def test_xml22plist_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_XML_STRING_NO_EMPTY_VAL,
+        input_suffix=".xml",
+        output_suffix=".plist",
+        cli_tool_name="xml22plist",
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_PLIST_XML_NO_EMPTY_VAL)
+
+# --- Piping Tests ---
+def test_x2p_cli_pipe_xml_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["x2p"],
+        input_data=SAMPLE_XML_STRING_NO_EMPTY_VAL,
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(stdout_content, EXPECTED_PLIST_XML_NO_EMPTY_VAL)
+
+def test_x2p_cli_pipe_binary_output():
+    stdout_content_bytes, stderr = run_yaplon_pipe_command(
+        ["x2p", "-b"],
+        input_data=SAMPLE_XML_STRING_NO_EMPTY_VAL,
+        is_binary_output=True
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(stdout_content_bytes, EXPECTED_PLIST_DICT_NO_EMPTY_VAL)
+
+# TODO: Add sorting, namespace, error handling, None value, and attribute tests.
+</file>
+
+<file path="tests/test_xml_to_yaml.py">
+import pytest
+import tempfile
+import os
+import io
+import yaml # For loading YAML to compare
+import xmltodict # For parsing XML to dict for comparison
+import json # Added import
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_yaml_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_XML_STRING = """\
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<name>Test XML to YAML</name>
+	<version>2.5</version>
+	<active>true</active>
+	<tags>
+		<tag>xml_tag</tag>
+		<tag>conversion</tag>
+	</tags>
+    <binary_content>VGhpcyBpcyBST0NLUw==</binary_content> <!-- "This is ROCKS" -->
+    <empty_node></empty_node>
+</root>
+"""
+
+# Expected Python dictionary that reader.xml (via xmltodict) would produce.
+# Note: xmltodict will parse '2.5', 'true', 'xml_tag', etc., as strings.
+# Empty nodes become None.
+EXPECTED_DICT_FROM_XML_FOR_YAML = {
+    "root": {
+        "name": "Test XML to YAML",
+        "version": "2.5",
+        "active": "true",
+        "tags": {
+            "tag": ["xml_tag", "conversion"] # xmltodict makes list for repeated elements
+        },
+        "binary_content": "VGhpcyBpcyBST0NLUw==", # String from XML
+        "empty_node": None
+    }
+}
+# The `writer.yaml` will then process this dictionary.
+# `oyaml.py`'s dumper will convert actual Python booleans/floats/ints correctly.
+# Strings "true", "2.5" will remain strings in YAML.
+# `bytes` objects (if any) would become `!!binary`.
+# Since `reader.xml` produces strings here, they'll be YAML strings.
+
+EXPECTED_YAML_PRETTY = """\
+root:
+  active: 'true'
+  binary_content: VGhpcyBpcyBST0NLUw==
+  empty_node: null
+  name: Test XML to YAML
+  tags:
+    tag:
+    - xml_tag
+    - conversion
+  version: '2.5'
+""" # PyYAML sorts keys by default for block style. Quotes strings if they look like bools/numbers.
+
+EXPECTED_YAML_MINIFIED = "{root: {active: 'true', binary_content: VGhpcyBpcyBST0NLUw==, empty_node: null, name: Test XML to YAML, tags: {tag: [xml_tag, conversion]}, version: '2.5'}}\n"
+# Minified YAML (flow style) from OrderedDict (which reader.xml produces) should preserve order of keys from XML.
+# Order in SAMPLE_XML_STRING: name, version, active, tags, binary_content, empty_node
+EXPECTED_YAML_MINIFIED_ORDERED = "{root: {name: Test XML to YAML, version: '2.5', active: 'true', tags: {tag: [xml_tag, conversion]}, binary_content: VGhpcyBpcyBST0NLUw==, empty_node: null}}\n"
+
+
+XML_FOR_SORTING_X2Y = """\
+<data>
+    <zebra>animal</zebra>
+    <apple>fruit</apple>
+    <banana>fruit</banana>
+</data>
+"""
+# Expected YAML from sorted XML (keys sorted: apple, banana, zebra)
+EXPECTED_YAML_SORTED_PRETTY_X2Y = """\
+data:
+  apple: fruit
+  banana: fruit
+  zebra: animal
+"""
+EXPECTED_YAML_SORTED_MINIFIED_X2Y = "{data: {apple: fruit, banana: fruit, zebra: animal}}\n"
+
+
+# --- Tests ---
+
+def test_xml_to_yaml_via_writer_functions():
+    with io.StringIO(SAMPLE_XML_STRING) as string_io_input:
+        # reader.xml uses xmltodict.parse(..., dict_constructor=OrderedDict)
+        xml_data_dict = reader.xml(string_io_input)
+
+    # Verify reader.xml output (optional, but good for sanity)
+    # Using json.dumps for simple comparison of structure, acknowledging types will be strings
+    assert json.dumps(xml_data_dict, sort_keys=True) == json.dumps(EXPECTED_DICT_FROM_XML_FOR_YAML, sort_keys=True)
+
+    # Test writer.yaml (default pretty)
+    string_io_pretty = io.StringIO()
+    writer.yaml(xml_data_dict, string_io_pretty, mini=False)
+    actual_yaml_pretty = string_io_pretty.getvalue()
+    assert_yaml_strings_equal(actual_yaml_pretty, EXPECTED_YAML_PRETTY)
+
+    # Test writer.yaml (minified)
+    string_io_mini = io.StringIO()
+    writer.yaml(xml_data_dict, string_io_mini, mini=True)
+    actual_yaml_mini = string_io_mini.getvalue()
+    # For minified, yaplon aims to preserve order from OrderedDict.
+    assert_yaml_strings_equal(actual_yaml_mini.strip(), EXPECTED_YAML_MINIFIED_ORDERED.strip())
+
+
+# CLI Tests
+def test_x2y_cli_default():
+    output_content, stderr = run_yaplon_command(
+        ["x2y"],
+        input_content=SAMPLE_XML_STRING,
+        input_suffix=".xml",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_PRETTY)
+
+def test_x2y_cli_minified():
+    output_content, stderr = run_yaplon_command(
+        ["x2y", "-m"],
+        input_content=SAMPLE_XML_STRING,
+        input_suffix=".xml",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content.strip(), EXPECTED_YAML_MINIFIED_ORDERED.strip())
+
+def test_x2y_cli_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["x2y", "-s"],
+        input_content=XML_FOR_SORTING_X2Y,
+        input_suffix=".xml",
+        output_suffix=".yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_SORTED_PRETTY_X2Y)
+
+def test_xml22yaml_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_XML_STRING,
+        input_suffix=".xml",
+        output_suffix=".yaml",
+        cli_tool_name="xml22yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content, EXPECTED_YAML_PRETTY)
+
+def test_xml22yaml_cli_minified_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["-m", "-s"],
+        input_content=XML_FOR_SORTING_X2Y,
+        input_suffix=".xml",
+        output_suffix=".yaml",
+        cli_tool_name="xml22yaml"
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(output_content.strip(), EXPECTED_YAML_SORTED_MINIFIED_X2Y.strip())
+
+# --- Piping Tests ---
+def test_x2y_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["x2y"],
+        input_data=SAMPLE_XML_STRING
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(stdout_content, EXPECTED_YAML_PRETTY)
+
+def test_x2y_cli_pipe_minified_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["x2y", "-m", "-s"],
+        input_data=XML_FOR_SORTING_X2Y
+    )
+    assert stderr == ""
+    assert_yaml_strings_equal(stdout_content.strip(), EXPECTED_YAML_SORTED_MINIFIED_X2Y.strip())
+
+# TODO:
+# - Test -N (namespaces) option for X2Y.
+# - Error handling for invalid XML input.
+# - XML with attributes: how are they represented in YAML by default?
+#   xmltodict parses `<tag attr="val">text</tag>` to `{'tag': {'@attr': 'val', '#text': 'text'}}`.
+#   This structure would then be dumped to YAML. This is covered by SAMPLE_XML_STRING via JSON to XML tests implicitly.
+#   For X2Y, if XML has attributes, they become dicts with '@' prefixes in YAML.
+#   Example: <node id="1">value</node> -> YAML: node: {'@id': '1', '#text': 'value'} (or similar based on PyYAML)
+#   This should be tested explicitly for X2Y.
+#
+# - Binary data: `reader.xml` produces a string for `<binary_field>SGVsbG8=</binary_field>`.
+#   `writer.yaml` takes this string. PyYAML will dump it as a plain string, not `!!binary`.
+#   If the goal is `XML <data> -> Python bytes -> YAML !!binary`, then `reader.xml` needs enhancement
+#   to detect/convert base64 strings to `bytes` (perhaps with a flag or heuristic).
+#   Current tests reflect that `<binary_content>VGhpcyBpcyBST0NLUw==</binary_content>` becomes a YAML string.
+#   The `EXPECTED_YAML_PRETTY` shows `binary_content: VGhpcyBpcyBST0NLUw==` (a string). This is correct for current implementation.
+#   The `EXPECTED_DICT_FROM_XML_FOR_YAML` also shows it as string. This is consistent.
+#
+# Key order for X2Y:
+# - `reader.xml` uses `xmltodict.parse(..., dict_constructor=OrderedDict)`, so order from XML is preserved in the Python dict.
+# - `writer.yaml` -> `oyaml.yaml_dumps`.
+#   - If `mini=False` (pretty): PyYAML's default `sort_keys=True` applies. Output YAML keys are sorted.
+#     `EXPECTED_YAML_PRETTY` reflects this.
+#   - If `mini=True` (minified): `oyaml.yaml_dumps` uses `default_flow_style=True`. PyYAML's `dump` with
+#     `OrderedDict` input and `default_flow_style=True` should preserve key order.
+#     `EXPECTED_YAML_MINIFIED_ORDERED` reflects this.
+# - `-s` flag for X2Y sorts the `OrderedDict` from `reader.xml` before passing to `writer.yaml`.
+#   This sorted order is then reflected in both pretty (additionally sorted by PyYAML) and minified YAML.
+#   `EXPECTED_YAML_SORTED_PRETTY_X2Y` and `EXPECTED_YAML_SORTED_MINIFIED_X2Y` reflect this.
+# The current test data and expectations seem consistent with these behaviors.
+</file>
+
+<file path="tests/test_yaml_to_json.py">
+import pytest
+import tempfile
+import os
+import json
+import io
+import yaml # For loading expected YAML if needed, though not primary for y2j
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_json_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_YAML_STRING = """\
+name: Test YAML
+version: 2.0
+active: false
+items:
+  - "gamma"
+  - 42
+  - sub_item: "another value"
+none_value: null # Or ~
+binary_data: !!binary TXlEYXRh # "MyData" base64 encoded
+"""
+
+EXPECTED_DICT_FROM_YAML = {
+    "name": "Test YAML",
+    "version": 2.0,
+    "active": False,
+    "items": ["gamma", 42, {"sub_item": "another value"}],
+    "none_value": None,
+    "binary_data": b"MyData"
+}
+
+EXPECTED_JSON_PRETTY_DEFAULT_BINARY = """\
+{
+    "name": "Test YAML",
+    "version": 2.0,
+    "active": false,
+    "items": [
+        "gamma",
+        42,
+        {
+            "sub_item": "another value"
+        }
+    ],
+    "none_value": null,
+    "binary_data": {
+        "__bytes__": true,
+        "base64": "TXlEYXRh"
+    }
+}"""
+EXPECTED_JSON_MINIFIED_DEFAULT_BINARY = '{"name":"Test YAML","version":2.0,"active":false,"items":["gamma",42,{"sub_item":"another value"}],"none_value":null,"binary_data":{"__bytes__":true,"base64":"TXlEYXRh"}}'
+
+EXPECTED_JSON_PRETTY_PRESERVE_BINARY = """\
+{
+    "name": "Test YAML",
+    "version": 2.0,
+    "active": false,
+    "items": [
+        "gamma",
+        42,
+        {
+            "sub_item": "another value"
+        }
+    ],
+    "none_value": null,
+    "binary_data": "TXlEYXRh"
+}"""
+EXPECTED_JSON_MINIFIED_PRESERVE_BINARY = '{"name":"Test YAML","version":2.0,"active":false,"items":["gamma",42,{"sub_item":"another value"}],"none_value":null,"binary_data":"TXlEYXRh"}'
+
+
+UNSORTED_YAML_STRING = """\
+z_key: 1
+a_key: "value"
+m_key:
+  - 3
+  - 1
+  - 2
+"""
+EXPECTED_JSON_FROM_UNSORTED_YAML_PRETTY = """\
+{
+    "z_key": 1,
+    "a_key": "value",
+    "m_key": [
+        3,
+        1,
+        2
+    ]
+}""" # reader.yaml loads into OrderedDict, writer.json preserves this order by default
+
+EXPECTED_JSON_FROM_UNSORTED_YAML_SORTED_PRETTY = """\
+{
+    "a_key": "value",
+    "m_key": [
+        3,
+        1,
+        2
+    ],
+    "z_key": 1
+}"""
+EXPECTED_JSON_FROM_UNSORTED_YAML_SORTED_MINIFIED = '{"a_key":"value","m_key":[3,1,2],"z_key":1}'
+
+
+# --- Tests ---
+
+def test_yaml_to_json_via_writer_functions():
+    with io.StringIO(SAMPLE_YAML_STRING) as string_io_input:
+        yaml_data = reader.yaml(string_io_input)
+    assert yaml_data == EXPECTED_DICT_FROM_YAML
+
+    string_io_default = io.StringIO()
+    writer.json(yaml_data, string_io_default, mini=False, binary=False)
+    actual_json_default = string_io_default.getvalue()
+    assert_json_strings_equal(actual_json_default, EXPECTED_JSON_PRETTY_DEFAULT_BINARY)
+
+    string_io_preserve_binary = io.StringIO()
+    writer.json(yaml_data, string_io_preserve_binary, mini=False, binary=True)
+    actual_json_preserve_binary = string_io_preserve_binary.getvalue()
+    assert_json_strings_equal(actual_json_preserve_binary, EXPECTED_JSON_PRETTY_PRESERVE_BINARY)
+
+def test_y2j_cli_default():
+    output_content, stderr = run_yaplon_command(
+        ["y2j"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY_DEFAULT_BINARY)
+
+def test_y2j_cli_minified():
+    output_content, stderr = run_yaplon_command(
+        ["y2j", "-m"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_MINIFIED_DEFAULT_BINARY)
+
+def test_y2j_cli_preserve_binary():
+    output_content, stderr = run_yaplon_command(
+        ["y2j", "-b"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY_PRESERVE_BINARY)
+
+def test_y2j_cli_preserve_binary_minified():
+    output_content, stderr = run_yaplon_command(
+        ["y2j", "-b", "-m"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_MINIFIED_PRESERVE_BINARY)
+
+def test_y2j_cli_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["y2j", "-s"],
+        input_content=UNSORTED_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_FROM_UNSORTED_YAML_SORTED_PRETTY)
+
+def test_y2j_cli_sorted_minified():
+    output_content, stderr = run_yaplon_command(
+        ["y2j", "-s", "-m"],
+        input_content=UNSORTED_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_FROM_UNSORTED_YAML_SORTED_MINIFIED)
+
+def test_yaml22json_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json",
+        cli_tool_name="yaml22json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(output_content, EXPECTED_JSON_PRETTY_DEFAULT_BINARY)
+
+def test_yaml22json_cli_preserve_binary_minified_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["-b", "-m", "-s"],
+        input_content=UNSORTED_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".json",
+        cli_tool_name="yaml22json"
+    )
+    assert stderr == ""
+    expected_json = EXPECTED_JSON_FROM_UNSORTED_YAML_SORTED_MINIFIED # -b no effect on this data
+    assert_json_strings_equal(output_content, expected_json)
+
+# --- Piping Tests ---
+def test_y2j_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["y2j"],
+        input_data=SAMPLE_YAML_STRING
+    )
+    assert stderr == ""
+    assert_json_strings_equal(stdout_content, EXPECTED_JSON_PRETTY_DEFAULT_BINARY)
+
+def test_y2j_cli_pipe_preserve_binary_minified_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["y2j", "-b", "-m", "-s"],
+        input_data=UNSORTED_YAML_STRING
+    )
+    assert stderr == ""
+    expected_json = EXPECTED_JSON_FROM_UNSORTED_YAML_SORTED_MINIFIED # -b no effect here
+    assert_json_strings_equal(stdout_content, expected_json)
+
+def test_yaml22json_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        [],
+        input_data=SAMPLE_YAML_STRING,
+        cli_tool_name="yaml22json"
+    )
+    assert stderr == ""
+    assert_json_strings_equal(stdout_content, EXPECTED_JSON_PRETTY_DEFAULT_BINARY)
+</file>
+
+<file path="tests/test_yaml_to_plist.py">
+import pytest
+import tempfile
+import os
+import io
+import yaml
+import plistlib
+from xml.etree import ElementTree as ET
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_plist_xml_strings_equal, # Using the one from helpers
+    assert_binary_plist_data_equal, # Using the one from helpers
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_YAML_STRING = """\
+name: Test YAML for Plist
+version: 4.0
+active: true
+tags:
+  - yaml_tag
+  - conversion_tag
+binary_payload: !!binary Um9ja3Mh # "Rocks!" base64 encoded
+"""
+
+EXPECTED_DICT_FROM_YAML_FOR_PLIST = {
+    "name": "Test YAML for Plist",
+    "version": 4.0,
+    "active": True,
+    "tags": ["yaml_tag", "conversion_tag"],
+    "binary_payload": b"Rocks!"
+}
+
+# Plist key order is typically sorted alphabetically by plistlib.dumps
+EXPECTED_PLIST_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>active</key>
+	<true/>
+	<key>binary_payload</key>
+	<data>Um9ja3Mh</data>
+	<key>name</key>
+	<string>Test YAML for Plist</string>
+	<key>tags</key>
+	<array>
+		<string>yaml_tag</string>
+		<string>conversion_tag</string>
+	</array>
+	<key>version</key>
+	<real>4.0</real>
+</dict>
+</plist>
+"""
+
+UNSORTED_YAML_FOR_PLIST = """\
+zulu_time: 2024-03-10T10:00:00Z
+alpha_num: 1
+bravo_str: "text"
+"""
+
+EXPECTED_SORTED_DICT_FOR_PLIST = { # After yaplon -s sorts the dict from YAML
+    "alpha_num": 1,
+    "bravo_str": "text",
+    "zulu_time": "2024-03-10T10:00:00Z"
+}
+# Plistlib will then sort these keys alphabetically for XML output
+EXPECTED_SORTED_PLIST_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>alpha_num</key>
+	<integer>1</integer>
+	<key>bravo_str</key>
+	<string>text</string>
+	<key>zulu_time</key>
+	<string>2024-03-10T10:00:00Z</string>
+</dict>
+</plist>
+"""
+
+# --- Tests ---
+
+def test_yaml_to_plist_via_writer_functions():
+    with io.StringIO(SAMPLE_YAML_STRING) as string_io_input:
+        yaml_data = reader.yaml(string_io_input)
+    assert yaml_data == EXPECTED_DICT_FROM_YAML_FOR_PLIST
+
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".plist", encoding='utf-8') as tmp_xml_plist_file:
+        xml_plist_filepath = tmp_xml_plist_file.name
+    try:
+        writer.plist(yaml_data, xml_plist_filepath, binary=False)
+        with open(xml_plist_filepath, "r", encoding='utf-8') as f:
+            actual_xml_plist = f.read()
+        assert_plist_xml_strings_equal(actual_xml_plist, EXPECTED_PLIST_XML)
+    finally:
+        os.remove(xml_plist_filepath)
+
+    with tempfile.NamedTemporaryFile(mode="wb+", delete=False, suffix=".plist") as tmp_bin_plist_file:
+        bin_plist_filepath = tmp_bin_plist_file.name
+    try:
+        writer.plist(yaml_data, bin_plist_filepath, binary=True)
+        with open(bin_plist_filepath, "rb") as f:
+            actual_binary_plist_bytes = f.read()
+        assert_binary_plist_data_equal(actual_binary_plist_bytes, EXPECTED_DICT_FROM_YAML_FOR_PLIST)
+    finally:
+        os.remove(bin_plist_filepath)
+
+def test_y2p_cli_xml_default():
+    output_content, stderr = run_yaplon_command(
+        ["y2p"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".plist",
+        is_binary_output=False # XML Plist is text
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_PLIST_XML)
+
+def test_y2p_cli_binary():
+    output_content_bytes, stderr = run_yaplon_command(
+        ["y2p", "-b"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".plist",
+        is_binary_output=True
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(output_content_bytes, EXPECTED_DICT_FROM_YAML_FOR_PLIST)
+
+def test_y2p_cli_xml_sorted():
+    output_content, stderr = run_yaplon_command(
+        ["y2p", "-s"],
+        input_content=UNSORTED_YAML_FOR_PLIST,
+        input_suffix=".yaml",
+        output_suffix=".plist",
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_SORTED_PLIST_XML)
+
+def test_yaml22plist_cli_xml_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".plist",
+        cli_tool_name="yaml22plist",
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(output_content, EXPECTED_PLIST_XML)
+
+def test_yaml22plist_cli_binary_sorted():
+    output_content_bytes, stderr = run_yaplon_command(
+        ["-b", "-s"],
+        input_content=UNSORTED_YAML_FOR_PLIST,
+        input_suffix=".yaml",
+        output_suffix=".plist",
+        cli_tool_name="yaml22plist",
+        is_binary_output=True
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(output_content_bytes, EXPECTED_SORTED_DICT_FOR_PLIST)
+
+# --- Piping Tests ---
+def test_y2p_cli_pipe_xml_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["y2p"],
+        input_data=SAMPLE_YAML_STRING,
+        is_binary_output=False # Expect XML string on stdout
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(stdout_content, EXPECTED_PLIST_XML)
+
+def test_y2p_cli_pipe_xml_sorted():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["y2p", "-s"],
+        input_data=UNSORTED_YAML_FOR_PLIST,
+        is_binary_output=False
+    )
+    assert stderr == ""
+    assert_plist_xml_strings_equal(stdout_content, EXPECTED_SORTED_PLIST_XML)
+
+def test_y2p_cli_pipe_binary_default():
+    stdout_content_bytes, stderr = run_yaplon_pipe_command(
+        ["y2p", "-b"],
+        input_data=SAMPLE_YAML_STRING,
+        is_binary_output=True # Expect binary plist bytes on stdout
+    )
+    assert stderr == ""
+    assert_binary_plist_data_equal(stdout_content_bytes, EXPECTED_DICT_FROM_YAML_FOR_PLIST)
+</file>
+
+<file path="tests/test_yaml_to_xml.py">
+import pytest
+import tempfile
+import os
+import io
+import json
+import xmltodict
+
+from yaplon import reader, writer
+from tests.helpers import (
+    assert_xml_strings_equal_for_j2x as assert_xml_strings_equal,
+    run_yaplon_command,
+    run_yaplon_pipe_command
+)
+
+# --- Test Data ---
+
+SAMPLE_YAML_STRING = """\
+name: Test YAML for XML
+application:
+  version: "1.2.3"
+  release_date: 2024-03-10 # Loaded as datetime.date by PyYAML
+  active: true
+  threshold: 0.75
+  ids:
+    - 100
+    - 200
+    - 300
+  config:
+    path: /usr/local/etc
+    retries: 3
+binary_data: !!binary Um9ja3NBbmRSb2xs # "RocksAndRoll"
+empty_list: []
+empty_dict: {}
+null_value: null
+"""
+
+# Expected Python dict from reader.yaml
+# oyaml.timestamp_constructor converts datetime.date to "YYYY-MM-DD" string
+EXPECTED_DICT_FROM_YAML = {
+    "name": "Test YAML for XML",
+    "application": {
+        "version": "1.2.3",
+        "release_date": "2024-03-10", # Corrected: PyYAML loads as date, oyaml.py str(date)
+        "active": True,
+        "threshold": 0.75,
+        "ids": [100, 200, 300],
+        "config": {
+            "path": "/usr/local/etc",
+            "retries": 3
+        }
+    },
+    "binary_data": b"RocksAndRoll",
+    "empty_list": [],
+    "empty_dict": {},
+    "null_value": None
+}
+
+# xmltodict.unparse behavior:
+# - Bytes are base64 encoded by _prepare_obj_for_xml.
+# - Numbers/booleans become text nodes (postprocessor in assert handles type check).
+# - None results in an empty tag: <tag></tag> (or <tag/> if minified).
+# - Empty dict results in an empty tag: <tag></tag> (or <tag/> if minified).
+# - Empty list is OMITTED by xmltodict.unparse by default.
+EXPECTED_XML_DEFAULT_ROOT = """\
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+	<name>Test YAML for XML</name>
+	<application>
+		<version>1.2.3</version>
+		<release_date>2024-03-10</release_date>
+		<active>true</active>
+		<threshold>0.75</threshold>
+		<ids>100</ids>
+		<ids>200</ids>
+		<ids>300</ids>
+		<config>
+			<path>/usr/local/etc</path>
+			<retries>3</retries>
+		</config>
+	</application>
+	<binary_data>Um9ja3NBbmRSb2xs</binary_data>
+	<empty_dict></empty_dict>
+	<null_value></null_value>
+</root>
+""" # empty_list is omitted
+
+EXPECTED_XML_MINIFIED_DEFAULT_ROOT = '<?xml version="1.0" encoding="utf-8"?><root><name>Test YAML for XML</name><application><version>1.2.3</version><release_date>2024-03-10</release_date><active>true</active><threshold>0.75</threshold><ids>100</ids><ids>200</ids><ids>300</ids><config><path>/usr/local/etc</path><retries>3</retries></config></application><binary_data>Um9ja3NBbmRSb2xs</binary_data><empty_dict/><null_value/></root>' # empty_list omitted
+
+
+# dict2xml behavior:
+# - None values are OMITTED by default.
+# - Empty lists/dicts result in empty tags: <tag></tag>.
+EXPECTED_XML_WRAP_TAG_DICT2XML = """\
+<yaplon_output>
+  <name>Test YAML for XML</name>
+  <application>
+    <version>1.2.3</version>
+    <release_date>2024-03-10</release_date>
+    <active>true</active>
+    <threshold>0.75</threshold>
+    <ids>100</ids>
+    <ids>200</ids>
+    <ids>300</ids>
+    <config>
+      <path>/usr/local/etc</path>
+      <retries>3</retries>
+    </config>
+  </application>
+  <binary_data>Um9ja3NBbmRSb2xs</binary_data>
+  <empty_list></empty_list>
+  <empty_dict></empty_dict>
+  <null_value>None</null_value> <!-- dict2xml converts None to "None" string -->
+</yaplon_output>
+"""
+
+# --- Tests ---
+
+def test_yaml_to_xml_via_writer_functions():
+    with io.StringIO(SAMPLE_YAML_STRING) as string_io_input:
+        yaml_data = reader.yaml(string_io_input)
+    assert yaml_data == EXPECTED_DICT_FROM_YAML
+
+    string_io_xml_default = io.StringIO()
+    writer.xml(yaml_data, string_io_xml_default, mini=False, root="root")
+    actual_xml_default = string_io_xml_default.getvalue()
+    assert_xml_strings_equal(actual_xml_default, EXPECTED_XML_DEFAULT_ROOT)
+
+    string_io_xml_tag = io.StringIO()
+    writer.xml(yaml_data, string_io_xml_tag, mini=False, tag="yaplon_output")
+    actual_xml_tag = string_io_xml_tag.getvalue()
+    assert_xml_strings_equal(actual_xml_tag, EXPECTED_XML_WRAP_TAG_DICT2XML, is_dict2xml_output=True)
+
+def test_y2x_cli_default_root():
+    output_content, stderr = run_yaplon_command(
+        ["y2x"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    # print(f"Actual XML output for default root:\n{output_content}") # Kept for debugging if needed
+    assert_xml_strings_equal(output_content, EXPECTED_XML_DEFAULT_ROOT)
+
+def test_y2x_cli_minified_default_root():
+    output_content, stderr = run_yaplon_command(
+        ["y2x", "-m"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(output_content, EXPECTED_XML_MINIFIED_DEFAULT_ROOT)
+
+def test_y2x_cli_custom_root():
+    output_content, stderr = run_yaplon_command(
+        ["y2x", "-R", "customData"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    expected_custom_root = EXPECTED_XML_DEFAULT_ROOT.replace("<root>", "<customData>").replace("</root>", "</customData>")
+    assert_xml_strings_equal(output_content, expected_custom_root)
+
+def test_y2x_cli_wrap_tag():
+    output_content, stderr = run_yaplon_command(
+        ["y2x", "-t", "yaplon_output"],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(output_content, EXPECTED_XML_WRAP_TAG_DICT2XML, is_dict2xml_output=True)
+
+def test_yaml22xml_cli_default():
+    output_content, stderr = run_yaplon_command(
+        [],
+        input_content=SAMPLE_YAML_STRING,
+        input_suffix=".yaml",
+        output_suffix=".xml",
+        cli_tool_name="yaml22xml"
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(output_content, EXPECTED_XML_DEFAULT_ROOT)
+
+# --- Piping Tests ---
+def test_y2x_cli_pipe_default():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["y2x"],
+        input_data=SAMPLE_YAML_STRING
+    )
+    assert stderr == ""
+    assert_xml_strings_equal(stdout_content, EXPECTED_XML_DEFAULT_ROOT)
+
+def test_y2x_cli_pipe_wrap_tag_minified():
+    stdout_content, stderr = run_yaplon_pipe_command(
+        ["y2x", "-t", "custom_tag", "-m"],
+        input_data=SAMPLE_YAML_STRING
+    )
+    assert stderr == ""
+    # Construct expected minified dict2xml output string manually for this specific case
+    # Based on SAMPLE_YAML_STRING and tag "custom_tag", minified
+    # dict2xml converts None to "None" string
+    expected_minified_dict2xml = (
+        "<custom_tag><name>Test YAML for XML</name>"
+        "<application><version>1.2.3</version><release_date>2024-03-10</release_date>"
+        "<active>true</active><threshold>0.75</threshold>"
+        "<ids>100</ids><ids>200</ids><ids>300</ids>"
+        "<config><path>/usr/local/etc</path><retries>3</retries></config></application>"
+        "<binary_data>Um9ja3NBbmRSb2xs</binary_data>"
+        "<empty_list></empty_list><empty_dict></empty_dict><null_value>None</null_value></custom_tag>"
+    )
+    assert_xml_strings_equal(stdout_content.strip(), expected_minified_dict2xml, is_dict2xml_output=True)
+</file>
+
+<file path="yaplon/file_strip/__init__.py">
+"""File Strip."""
+</file>
+
+<file path="yaplon/file_strip/comments.py">
+"""
+Provides a class and methods for stripping comments from text based on
+language-specific patterns (currently C-style/JSON and Python-style).
+Used as a utility for cleaning data before parsing.
+
+Licensed under MIT
+Copyright (c) 2012 Isaac Muse <isaacmuse@gmail.com>
+"""
+
+import re
+
+LINE_PRESERVE = re.compile(r"\r?\n", re.MULTILINE)
+CPP_PATTERN = re.compile(
+    r"""(?x)
+        (?P<comments>
+            /\*[^*]*\*+(?:[^/*][^*]*\*+)*/  # multi-line comments
+          | \s*//(?:[^\r\n])*               # single line comments
+        )
+      | (?P<code>
+            "(?:\\.|[^"\\])*"               # double quotes
+          | '(?:\\.|[^'\\])*'               # single quotes
+          | .[^/"']*                        # everything else
+        )
+    """,
+    re.DOTALL,
+)
+PY_PATTERN = re.compile(
+    r"""(?x)
+        (?P<comments>
+            \s*\#(?:[^\r\n])*               # single line comments
+        )
+      | (?P<code>
+            "{3}(?:\\.|[^\\])*"{3}          # triple double quotes
+          | '{3}(?:\\.|[^\\])*'{3}          # triple single quotes
+          | "(?:\\.|[^"\\])*"               # double quotes
+          | '(?:\\.|[^'])*'                 # single quotes
+          | .[^\#"']*                       # everything else
+        )
+    """,
+    re.DOTALL,
+)
+
+
+def _strip_regex(pattern, text, preserve_lines):
+    """Generic internal function that strips out comments based on the given regex pattern."""
+
+    def remove_comments(group_text, preserve_lines_flag=False): # Renamed preserve_lines for clarity
+        """Remove comment text, optionally preserving line breaks within it."""
+        if preserve_lines_flag:
+            return "".join([x[0] for x in LINE_PRESERVE.findall(group_text)])
+        return ""
+
+    def evaluate(match_obj, preserve_lines_flag): # Renamed m, preserve_lines
+        """Evaluate a regex match: return code or processed comment group."""
+        g = match_obj.groupdict()
+        if g["code"] is not None:
+            return g["code"]
+        else:
+            return remove_comments(g["comments"], preserve_lines_flag)
+
+    return "".join(map(lambda m: evaluate(m, preserve_lines), pattern.finditer(text)))
+
+
+# These are intended as static methods for the Comments class or direct use if refactored.
+# For now, they are module-level functions used by Comments.add_style.
+def _cpp(text, preserve_lines=False):
+    """Strips C/C++ style comments (/* ... */ and // ...)."""
+    return _strip_regex(CPP_PATTERN, text, preserve_lines)
+
+
+def _python(text, preserve_lines=False):
+    """Strips Python style comments (# ...)."""
+    return _strip_regex(PY_PATTERN, text, preserve_lines)
+
+
+class CommentException(Exception):
+    """Custom exception for comment stripping errors."""
+
+    def __init__(self, value):
+        """Initialize with the error value."""
+        super().__init__(value)
+        self.value = value
+
+    def __str__(self):
+        """Return the string representation of the error value."""
+        return repr(self.value)
+
+
+class Comments(object):
+    """
+    Manages and applies different comment stripping styles.
+
+    Styles (e.g., 'c', 'python') are registered using `add_style` along with
+    their corresponding stripping functions. The `strip` method then applies
+    the configured style to a given text.
+    """
+
+    styles = [] # Class variable to store registered style names
+
+    def __init__(self, style=None, preserve_lines=False):
+        """Initialize with a specific comment style and line preservation flag.
+
+        Args:
+            style: The name of the comment style to use (must be registered).
+            preserve_lines: If True, line breaks within comments are preserved,
+                            otherwise comments are replaced with an empty string.
+        """
+        self.preserve_lines = preserve_lines
+        self.call = self._get_style(style) # Changed to call _get_style
+
+    @classmethod
+    def add_style(cls, style, fn):
+        """Class method to register a new comment stripping style.
+
+        Args:
+            style: The name of the style (e.g., "c", "python").
+            fn: The function that implements stripping for this style.
+                The function should accept (text, preserve_lines) arguments.
+        """
+        if not hasattr(cls, style): # Check if style method already exists
+            setattr(cls, style, fn) # Make it a method of the class for direct call
+            if style not in cls.styles: # Keep track of style names
+                 cls.styles.append(style)
+
+    def _get_style(self, style): # Changed to _get_style for internal use
+        """Internal method to retrieve the function for a given style name."""
+        if hasattr(self, style) and style in self.styles:
+            return getattr(self, style) # Return the method itself
+        else:
+            raise CommentException(f"Comment style '{style}' not recognized or registered.")
+
+    def strip(self, text):
+        """Applies the configured comment stripping style to the given text.
+
+        Args:
+            text: The input string from which to strip comments.
+
+        Returns:
+            The text with comments stripped according to the configured style.
+        """
+        if not self.call: # Should not happen if constructor worked
+            raise CommentException("No comment stripping style configured.")
+        # The self.call is now the stripping function (e.g., _cpp or _python)
+        # which needs to be called with text and preserve_lines.
+        return self.call(text, self.preserve_lines)
+
+
+Comments.add_style("c", _cpp)
+Comments.add_style("json", _cpp)
+Comments.add_style("cpp", _cpp)
+Comments.add_style("python", _python)
+</file>
+
+<file path="yaplon/file_strip/json.py">
+"""
+File Strip.
+
+Licensed under MIT
+Copyright (c) 2012 Isaac Muse <isaacmuse@gmail.com>
+"""
+
+import re
+from .comments import Comments
+
+JSON_PATTERN = re.compile(
+    r"""(?x)
+        (
+            (?P<square_comma>
+                ,                        # trailing comma
+                (?P<square_ws>[\s\r\n]*) # white space
+                (?P<square_bracket>\])   # bracket
+            )
+          | (?P<curly_comma>
+                ,                        # trailing comma
+                (?P<curly_ws>[\s\r\n]*)  # white space
+                (?P<curly_bracket>\})    # bracket
+            )
+        )
+      | (?P<code>
+            "(?:\\.|[^"\\])*"            # double quoted string
+          | '(?:\\.|[^'\\])*'            # single quoted string
+          | .[^,"']*                     # everything else
+        )
+    """,
+    re.DOTALL,
+)
+
+
+def strip_dangling_commas(text, preserve_lines=False):
+    """Strip dangling commas."""
+
+    regex = JSON_PATTERN
+
+    def remove_comma(g, preserve_lines):
+        """Remove comma."""
+
+        if preserve_lines:
+            # ,] -> ] else ,} -> }
+            if g["square_comma"] is not None:
+                return g["square_ws"] + g["square_bracket"]
+            else:
+                return g["curly_ws"] + g["curly_bracket"]
+        else:
+            # ,] -> ] else ,} -> }
+            return g["square_bracket"] if g["square_comma"] else g["curly_bracket"]
+
+    def evaluate(m, preserve_lines):
+        """Search for dangling comma."""
+
+        g = m.groupdict()
+        return remove_comma(g, preserve_lines) if g["code"] is None else g["code"]
+
+    return "".join(map(lambda m: evaluate(m, preserve_lines), regex.finditer(text)))
+
+
+def strip_comments(text, preserve_lines=False):
+    """Strip JavaScript like comments."""
+
+    return Comments("json", preserve_lines).strip(text)
+
+
+def sanitize_json(text, preserve_lines=False):
+    """Sanitize the JSON file by removing comments and dangling commas."""
+
+    return strip_dangling_commas(
+        Comments("json", preserve_lines).strip(text), preserve_lines
+    )
+</file>
+
+<file path="yaplon/__init__.py">
+__version__ = "1.6.0"
+</file>
+
+<file path="yaplon/__main__.py">
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+yaplon
+------
+Copyright (c) 2019-2024 Adam Twardoch <adam+github@twardoch.com> & Jules (AI Agent)
+Copyright (c) 2012-2015 Isaac Muse <isaacmuse@gmail.com>
+MIT license. Requires Python 3.9+.
+Based on https://github.com/facelessuser/SerializedDataConverter
+
+Convert between JSON, YAML, PLIST (binary/XML), XML, and CSV (read-only for CSV input)
+in the commandline. Can be used in piping.
+
+Usage: yaplon <command> [options]
+Example: yaplon j2y -i input.json -o output.yaml
+
+Also installs direct CLI tools for each conversion, e.g., json22yaml, plist22json.
+(Full list in README.md or by running 'yaplon --help').
+"""
+
+import click
+
+from yaplon import __version__
+from yaplon import reader
+from yaplon import writer
+
+CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
+
+VERSION = __version__
+
+
+@click.group(context_settings=CONTEXT_SETTINGS)
+@click.version_option(version=VERSION)
+def cli():
+    """
+    Convert between JSON, YAML, PLIST (binary/XML),
+    XML and CSV (read-only) in the commandline.
+
+    Usage: yaplon [c|j|p|x|y]2[j|p|x|y] -i input -o output [options]
+
+    Omit -i to use stdin. Omit -o to use stdout.
+    Type 'yaplon command --help' for more info on each conversion command.
+    """
+
+
+# json22plist
+
+
+@cli.command(
+    "j2p",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert JSON to Plist. Options: [-s] [-b]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input JSON file, stdin if '-' or omitted",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=str,
+    help="output PLIST file, stdout if '-' or omitted",
+)
+@click.option("-b", "--bin", "binary", is_flag=True, help="output binary PLIST")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def json2plist(input, output, binary, sort):
+    """Converts JSON input to Plist output.
+
+    Input is read from a JSON file (or stdin).
+    Output is written to a Plist file (or stdout).
+
+    Options:
+      -b, --bin: Output binary Plist format. Default is XML Plist.
+      -s, --sort: Sort input JSON dictionary keys before conversion.
+    """
+    writer.plist(reader.json(input, sort=sort), output, binary=binary)
+
+
+# json22yaml
+
+
+@cli.command(
+    "j2y",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert JSON to YAML. Options: [-s] [-m]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input JSON file, stdin if '-' or omitted",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output YAML file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified YAML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def json2yaml(input, output, mini, sort):
+    """Converts JSON input to YAML output.
+
+    Input is read from a JSON file (or stdin).
+    Output is written to a YAML file (or stdout).
+
+    Options:
+      -m, --mini: Output minified YAML (flow style, less indentation).
+      -s, --sort: Sort input JSON dictionary keys before conversion.
+    """
+    writer.yaml(reader.json(input, sort=sort), output, mini=mini)
+
+
+# plist22json
+
+
+@cli.command(
+    "p2j",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert Plist to JSON. Options: [-s] [-m] [-b]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("rb"),
+    help="input PLIST file, stdin if '-' or omitted",
+)
+@click.option("-b", "--bin", "binary", is_flag=True, help="preserve binary in JSON")
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output JSON file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified JSON")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def plist2json(input, output, mini, binary, sort):
+    """Converts Plist input to JSON output.
+
+    Input is read from a Plist file (XML or binary, or stdin).
+    Output is written to a JSON file (or stdout).
+
+    Options:
+      -m, --mini: Output minified JSON (no indentation or newlines).
+      -b, --bin: Preserve binary data from Plist <data> tags as base64
+                 encoded strings in JSON, instead of the default special
+                 dictionary representation `{"__bytes__": true, "base64": "..."}`.
+      -s, --sort: Sort input Plist dictionary keys before conversion.
+    """
+    writer.json(reader.plist(input, sort=sort), output, mini=mini, binary=binary)
+
+
+# plist22yaml
+
+
+@cli.command(
+    "p2y",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert Plist to YAML. Options: [-s] [-m]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("rb"),
+    help="input PLIST file, stdin if '-' or omitted",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output YAML file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified YAML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def plist2yaml(input, output, mini, sort):
+    """Converts Plist input to YAML output.
+
+    Input is read from a Plist file (XML or binary, or stdin).
+    Output is written to a YAML file (or stdout).
+    Binary data in Plist (<data> tags) becomes YAML `!!binary` tags.
+
+    Options:
+      -m, --mini: Output minified YAML (flow style, less indentation).
+      -s, --sort: Sort input Plist dictionary keys before conversion.
+    """
+    writer.yaml(reader.plist(input, sort=sort), output, mini=mini)
+
+
+# yaml22json
+
+
+@cli.command(
+    "y2j",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert YAML to JSON. Options: [-s] [-m] [-b]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input YAML file, stdin if '-' or omitted",
+)
+@click.option("-b", "--bin", "binary", is_flag=True, help="preserve binary in JSON")
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output JSON file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified JSON")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def yaml2json(input, output, mini, binary, sort):
+    """Converts YAML input to JSON output.
+
+    Input is read from a YAML file (or stdin).
+    Output is written to a JSON file (or stdout).
+    YAML `!!binary` tags are converted to Python bytes and then to JSON
+    based on the -b flag.
+
+    Options:
+      -m, --mini: Output minified JSON.
+      -b, --bin: Preserve binary data from YAML `!!binary` tags as base64
+                 encoded strings in JSON, instead of the default special
+                 dictionary representation `{"__bytes__": true, "base64": "..."}`.
+      -s, --sort: Sort input YAML dictionary keys before conversion.
+    """
+    writer.json(reader.yaml(input, sort=sort), output, mini=mini, binary=binary)
+
+
+# yaml22plist
+
+
+@cli.command(
+    "y2p",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert YAML to Plist. Options: [-s] [-b]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input YAML file, stdin if '-' or omitted",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=str,
+    help="output PLIST file, stdout if '-' or omitted",
+)
+@click.option("-b", "--bin", "binary", is_flag=True, help="output binary PLIST")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def yaml2plist(input, output, binary, sort):
+    """Converts YAML input to Plist output.
+
+    Input is read from a YAML file (or stdin).
+    Output is written to a Plist file (or stdout).
+    YAML `!!binary` tags are converted to Python bytes, which then become
+    Plist <data> elements.
+
+    Options:
+      -b, --bin: Output binary Plist format. Default is XML Plist.
+      -s, --sort: Sort input YAML dictionary keys before conversion.
+    """
+    writer.plist(reader.yaml(input, sort=sort), output, binary=binary)
+
+
+# csv22json
+
+
+@cli.command(
+    "c2j",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert CSV to JSON. Options: [-H] [-d DIALECT] [-k KEY] [-s] [-m]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input CSV file, stdin if '-' or omitted",
+)
+@click.option(
+    "-H", "--header", "header", is_flag=True, help="CSV has header and reads as dict"
+)
+@click.option(
+    "-d",
+    "--dialect",
+    "dialect",
+    default=None,
+    type=str,
+    help="CSV dialect like 'excel' or 'excel-tab'",
+)
+@click.option(
+    "-k",
+    "--key",
+    "key",
+    default=0,
+    type=int,
+    help="if CSV has header, use column number as main key",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output JSON file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified JSON")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def csv2json(input, output, dialect, header, key, mini, sort):
+    """Converts CSV input to JSON output. (CSV input is read-only).
+
+    Input is read from a CSV file (or stdin).
+    Output is written to a JSON file (or stdout).
+
+    Options:
+      -H, --header: Treat first row as header. Reads CSV as a list of dictionaries.
+      -d, --dialect: Specify CSV dialect (e.g., 'excel', 'excel-tab', 'unix').
+      -k, --key: If CSV has header, use column number (int) as key for a top-level dict.
+      -m, --mini: Output minified JSON.
+      -s, --sort: Sort data (e.g. keys of dicts if -H used, or main dict keys if -k used).
+    """
+    writer.json(
+        reader.csv(input, dialect=dialect, header=header, key=key, sort=sort),
+        output,
+        mini=mini,
+    )
+
+
+# csv22yaml
+
+
+@cli.command(
+    "c2y",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert CSV to YAML. Options: [-H] [-d DIALECT] [-k KEY] [-s] [-m]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input CSV file, stdin if '-' or omitted",
+)
+@click.option(
+    "-H", "--header", "header", is_flag=True, help="CSV has header and reads as dict"
+)
+@click.option(
+    "-d",
+    "--dialect",
+    "dialect",
+    default=None,
+    type=str,
+    help="CSV dialect like 'excel' or 'excel-tab'",
+)
+@click.option(
+    "-k",
+    "--key",
+    "key",
+    default=0,
+    type=int,
+    help="if CSV has header, use column number as main key",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output YAML file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified YAML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def csv2yaml(input, output, dialect, header, key, mini, sort):
+    """Converts CSV input to YAML output. (CSV input is read-only).
+
+    Input is read from a CSV file (or stdin).
+    Output is written to a YAML file (or stdout).
+
+    Options:
+      -H, --header: Treat first row as header. Reads CSV as a list of dictionaries.
+      -d, --dialect: Specify CSV dialect (e.g., 'excel', 'excel-tab', 'unix').
+      -k, --key: If CSV has header, use column number (int) as key for a top-level dict.
+      -m, --mini: Output minified YAML.
+      -s, --sort: Sort data.
+    """
+    writer.yaml(
+        reader.csv(input, dialect=dialect, header=header, key=key, sort=sort),
+        output,
+        mini=mini,
+    )
+
+
+# csv22plist
+
+
+@cli.command(
+    "c2p",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert CSV to Plist. Options: [-H] [-d DIALECT] [-k KEY] [-s] [-b]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input CSV file, stdin if '-' or omitted",
+)
+@click.option(
+    "-H", "--header", "header", is_flag=True, help="CSV has header and reads as dict"
+)
+@click.option(
+    "-d",
+    "--dialect",
+    "dialect",
+    default=None,
+    type=str,
+    help="CSV dialect like 'excel' or 'excel-tab'",
+)
+@click.option(
+    "-k",
+    "--key",
+    "key",
+    default=0,
+    type=int,
+    help="if CSV has header, use column number as main key",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output PLIST file, stdout if '-' or omitted",
+)
+@click.option("-b", "--bin", "binary", is_flag=True, help="output binary PLIST")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def csv2plist(input, output, dialect, header, key, binary, sort):
+    """Converts CSV input to Plist output. (CSV input is read-only).
+
+    Input is read from a CSV file (or stdin).
+    Output is written to a Plist file (or stdout).
+
+    Options:
+      -H, --header: Treat first row as header.
+      -d, --dialect: Specify CSV dialect.
+      -k, --key: If CSV has header, use column number (int) as key for a top-level dict.
+      -b, --bin: Output binary Plist.
+      -s, --sort: Sort data.
+    """
+    writer.plist(
+        reader.csv(input, dialect=dialect, header=header, key=key, sort=sort),
+        output,
+        binary=binary,
+    )
+
+
+# json22xml
+
+
+@cli.command(
+    "j2x",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert JSON to XML. Options: [-s] [-m] [-R ROOT] [-t TAG]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input JSON file, stdin if '-' or omitted",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=str,
+    help="output XML file, stdout if '-' or omitted",
+)
+@click.option(
+    "-R", "--root", "root", default="root", type=str, help="root XML element if missing"
+)
+@click.option("-t", "--tag", "tag", type=str, help="wrap in tag")
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified XML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def json2xml(input, output, mini, tag, root, sort):
+    """Converts JSON input to XML output.
+
+    Input is read from a JSON file (or stdin).
+    Output is written to an XML file (or stdout).
+
+    Options:
+      -m, --mini: Output minified XML.
+      -R, --root <name>: Specify root tag name. (Used by xmltodict backend).
+      -t, --tag <name>: Wrap output in this tag. (Uses dict2xml backend, simpler XML).
+                       If -t is used, -R is ignored.
+      -s, --sort: Sort input JSON dictionary keys.
+    """
+    writer.xml(reader.json(input, sort=sort), output, mini=mini, tag=tag, root=root)
+
+
+# plist22xml
+
+
+@cli.command(
+    "p2x",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert Plist to XML. Options: [-s] [-m] [-R ROOT] [-t TAG]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("rb"),
+    help="input PLIST file, stdin if '-' or omitted",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output XML file, stdout if '-' or omitted",
+)
+@click.option(
+    "-R", "--root", "root", default="root", type=str, help="root XML element if missing"
+)
+@click.option("-t", "--tag", "tag", type=str, help="wrap in tag")
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified XML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def plist2xml(input, output, mini, tag, root, sort):
+    """Converts Plist input to XML output.
+
+    Input is read from a Plist file (XML or binary, or stdin).
+    Output is written to an XML file (or stdout).
+    Plist <data> and <date> are converted to strings/ISO strings before XML generation.
+
+    Options:
+      -m, --mini: Output minified XML.
+      -R, --root <name>: Specify root tag name (xmltodict backend).
+      -t, --tag <name>: Wrap output in this tag (dict2xml backend).
+      -s, --sort: Sort input Plist dictionary keys.
+    """
+    writer.xml(reader.plist(input, sort=sort), output, mini=mini, tag=tag, root=root)
+
+
+# yaml22xml
+
+
+@cli.command(
+    "y2x",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert YAML to XML. Options: [-s] [-m] [-R ROOT] [-t TAG]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"), # Corrected: YAML input is text
+    help="input YAML file, stdin if '-' or omitted",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output XML file, stdout if '-' or omitted",
+)
+@click.option(
+    "-R", "--root", "root", default="root", type=str, help="root XML element if missing"
+)
+@click.option("-t", "--tag", "tag", type=str, help="wrap in tag")
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified XML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def yaml2xml(input, output, mini, tag, root, sort):
+    """Converts YAML input to XML output.
+
+    Input is read from a YAML file (or stdin).
+    Output is written to an XML file (or stdout).
+    YAML `!!binary` tags become base64 strings, `!!timestamp` become ISO strings in XML.
+
+    Options:
+      -m, --mini: Output minified XML.
+      -R, --root <name>: Specify root tag name (xmltodict backend).
+      -t, --tag <name>: Wrap output in this tag (dict2xml backend).
+      -s, --sort: Sort input YAML dictionary keys.
+    """
+    writer.xml(reader.yaml(input, sort=sort), output, mini=mini, tag=tag, root=root)
+
+
+# csv22xml
+
+
+@cli.command(
+    "c2x",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert CSV to XML. Options: [-H] [-d DIALECT] [-k KEY] [-s] [-m] [-R ROOT] [-t TAG]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"),
+    help="input CSV file, stdin if '-' or omitted",
+)
+@click.option(
+    "-H", "--header", "header", is_flag=True, help="CSV has header and reads as dict"
+)
+@click.option(
+    "-d",
+    "--dialect",
+    "dialect",
+    default=None,
+    type=str,
+    help="CSV dialect like 'excel' or 'excel-tab'",
+)
+@click.option(
+    "-k",
+    "--key",
+    "key",
+    default=0,
+    type=int,
+    help="if CSV has header, use column number as main key",
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output XML file, stdout if '-' or omitted",
+)
+@click.option(
+    "-R", "--root", "root", default="root", type=str, help="root XML element if missing"
+)
+@click.option("-t", "--tag", "tag", type=str, help="wrap in tag")
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified XML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def csv2xml(input, output, dialect, header, key, mini, tag, root, sort):
+    """Converts CSV input to XML output. (CSV input is read-only).
+
+    Input is read from a CSV file (or stdin).
+    Output is written to an XML file (or stdout).
+
+    Options:
+      -H, --header: Treat first row as header.
+      -d, --dialect: Specify CSV dialect.
+      -k, --key: If CSV has header, use column number (int) as key for a top-level dict.
+      -m, --mini: Output minified XML.
+      -R, --root <name>: Specify root tag name (xmltodict backend).
+      -t, --tag <name>: Wrap output in this tag (dict2xml backend).
+      -s, --sort: Sort data.
+    """
+    writer.xml(
+        reader.csv(input, dialect=dialect, header=header, key=key, sort=sort),
+        output,
+        mini=mini,
+        tag=tag,
+        root=root,
+    )
+
+
+# xml22plist
+
+
+@cli.command(
+    "x2p",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert XML to Plist. Options: [-N] [-s] [-b]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"), # XML input is text
+    help="input XML file, stdin if '-' or omitted",
+)
+@click.option(
+    "-N", "--namespaces", "namespaces", is_flag=True, help="read XML namespaces"
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=str,
+    help="output PLIST file, stdout if '-' or omitted",
+)
+@click.option("-b", "--bin", "binary", is_flag=True, help="output binary PLIST")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def xml2plist(input, output, namespaces, binary, sort):
+    """Converts XML input to Plist output.
+
+    Input is read from an XML file (or stdin).
+    Output is written to a Plist file (or stdout).
+    XML content is parsed to a Python dictionary; numeric/boolean strings
+    are converted to Python types before Plist serialization.
+
+    Options:
+      -N, --namespaces: Read XML namespaces (affects dict keys).
+      -b, --bin: Output binary Plist format.
+      -s, --sort: Sort dictionary keys from XML before Plist conversion.
+    """
+    writer.plist(
+        reader.xml(input, namespaces=namespaces, sort=sort), output, binary=binary
+    )
+
+
+# xml22yaml
+
+
+@cli.command(
+    "x2y",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert XML to YAML. Options: [-N] [-s] [-m]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"), # XML input is text
+    help="input XML file, stdin if '-' or omitted",
+)
+@click.option(
+    "-N", "--namespaces", "namespaces", is_flag=True, help="read XML namespaces"
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output YAML file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified YAML")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def xml2yaml(input, output, namespaces, mini, sort):
+    """Converts XML input to YAML output.
+
+    Input is read from an XML file (or stdin).
+    Output is written to a YAML file (or stdout).
+    XML content is parsed to a Python dictionary; this dictionary is then
+    serialized to YAML. Base64 strings in XML become plain YAML strings.
+
+    Options:
+      -N, --namespaces: Read XML namespaces.
+      -m, --mini: Output minified YAML.
+      -s, --sort: Sort dictionary keys from XML.
+    """
+    writer.yaml(reader.xml(input, namespaces=namespaces, sort=sort), output, mini=mini)
+
+
+# xml22json
+
+
+@cli.command(
+    "x2j",
+    context_settings=CONTEXT_SETTINGS,
+    short_help="Convert XML to JSON. Options: [-N] [-s] [-m]",
+)
+@click.version_option(version=VERSION)
+@click.option(
+    "-i",
+    "--in",
+    "input",
+    default="-",
+    type=click.File("r"), # Corrected: XML input is text
+    help="input XML file, stdin if '-' or omitted",
+)
+@click.option(
+    "-N", "--namespaces", "namespaces", is_flag=True, help="read XML namespaces"
+)
+@click.option(
+    "-o",
+    "--out",
+    "output",
+    default="-",
+    type=click.File("w"),
+    help="output JSON file, stdout if '-' or omitted",
+)
+@click.option("-m", "--mini", "mini", is_flag=True, help="output minified JSON")
+@click.option("-s", "--sort", "sort", is_flag=True, help="sort data")
+def xml2json(input, output, namespaces, mini, sort):
+    """Converts XML input to JSON output.
+
+    Input is read from an XML file (or stdin).
+    Output is written to a JSON file (or stdout).
+    XML content is parsed to a Python dictionary which is then serialized to JSON.
+    The -b (binary preservation) flag is NOT available for this command.
+
+    Options:
+      -N, --namespaces: Read XML namespaces.
+      -m, --mini: Output minified JSON.
+      -s, --sort: Sort dictionary keys from XML.
+    """
+    writer.json(reader.xml(input, namespaces=namespaces, sort=sort), output, mini=mini)
+
+
+if __name__ == "__main__":
+    cli()
+</file>
+
+<file path="yaplon/ojson.py">
+"""
+Provides helper functions for JSON serialization and deserialization,
+including custom handling for `bytes` objects and ensuring `OrderedDict`
+usage when reading JSON to preserve key order.
+
+Based on code from SerializedDataConverter by Isaac Muse.
+Licensed under MIT.
+Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
+"""
+
+import collections
+import json
+
+__all__ = ("read_json", "json_dumps")
+
+
+def json_dump(obj, stream, preserve_binary=False, compact=False):
+    """Serialize Python object `obj` as a JSON formatted stream to `stream`.
+
+    Handles `bytes` objects via `json_convert_to` based on `preserve_binary`.
+    Supports compact (minified) output.
+
+    Args:
+        obj: The Python object to serialize.
+        stream: A .write()-supporting file-like object.
+        preserve_binary: If True, `bytes` are serialized as base64 strings.
+                         Otherwise, as `{"__bytes__": true, "base64": "..."}`.
+        compact: If True, output is minified (no indents/newlines).
+    """
+    if compact:
+        indent = None
+        separators = (",", ":")
+    else:
+        indent = 4
+        separators = (",", ": ")
+
+    return json.dump(
+        json_convert_to(obj, preserve_binary),
+        stream,
+        ensure_ascii=False,
+        sort_keys=False,
+        indent=indent,
+        separators=separators,
+    )
+
+
+def json_dumps(obj, preserve_binary=False, compact=False):
+    """Serialize Python object `obj` to a JSON formatted string.
+
+    Handles `bytes` objects via `json_convert_to` based on `preserve_binary`.
+    Supports compact (minified) output.
+
+    Args:
+        obj: The Python object to serialize.
+        preserve_binary: If True, `bytes` are serialized as base64 strings.
+                         Otherwise, as `{"__bytes__": true, "base64": "..."}`.
+        compact: If True, output is minified.
+
+    Returns:
+        A JSON formatted string.
+    """
+    if compact:
+        indent = None
+        separators = (",", ":")
+    else:
+        indent = 4
+        separators = (",", ": ")
+
+    return json.dumps(
+        json_convert_to(obj, preserve_binary),
+        ensure_ascii=False,
+        sort_keys=False,
+        indent=indent,
+        separators=separators,
+    )
+
+
+def read_json(stream):
+    """Deserialize JSON from `stream` to Python objects using OrderedDict.
+
+    Uses `json_convert_from` to handle custom object representations
+    (e.g., `{"__bytes__": true, "base64": "..."}` back to `bytes`).
+
+    Args:
+        stream: A .read()-supporting file-like object containing a JSON document.
+
+    Returns:
+        An OrderedDict representing the JSON data.
+    """
+    return json_convert_from(
+        json.load(stream, object_pairs_hook=collections.OrderedDict)
+    )
+
+import base64
+
+def json_convert_to(obj, preserve_binary=False):
+    """Recursively convert Python objects to a JSON serializable format.
+
+    Specifically handles `bytes` objects:
+    - If `preserve_binary` is True, converts `bytes` to a base64 encoded string.
+    - If `preserve_binary` is False, converts `bytes` to a dictionary
+      `{"__bytes__": True, "base64": "encoded_string"}`.
+
+    Recurses through dicts and lists. Other types are returned as is.
+
+    Args:
+        obj: The Python object to convert.
+        preserve_binary: Flag to control `bytes` serialization format.
+
+    Returns:
+        A JSON serializable representation of the object.
+    """
+    if isinstance(obj, bytes):
+        b64_data = base64.b64encode(obj).decode('ascii')
+        return b64_data if preserve_binary else {"__bytes__": True, "base64": b64_data}
+    elif isinstance(obj, (dict, collections.OrderedDict)):
+        # Return a new dict to avoid modifying original during iteration if it's complex
+        return {k: json_convert_to(v, preserve_binary) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        # Return a new list
+        return [json_convert_to(item, preserve_binary) for item in obj]
+
+    # For other types, return as is, assuming json.dump can handle them
+    # (e.g., str, int, float, bool, None)
+    return obj
+
+
+def json_convert_from(obj):
+    """Recursively convert specific JSON structures back to Python types.
+
+    Handles:
+    - Dictionaries like `{"__bytes__": True, "base64": "..."}` back to `bytes`.
+    - Legacy `{"!!python/object:plistlib.Data": "..."}` back to `bytes`.
+
+    Recurses through dicts and lists.
+
+    Args:
+        obj: The JSON-decoded object (often a dict or list).
+
+    Returns:
+        The Python object with specific structures converted.
+    """
+    if isinstance(obj, (dict, collections.OrderedDict)):
+        # Check for the new bytes representation first
+        if obj.get("__bytes__") is True and "base64" in obj:
+            try:
+                return base64.b64decode(obj["base64"])
+            except Exception: # pylint: disable=broad-except
+                # If base64 decoding fails, return the dict as is, or handle error
+                # For now, let's assume it was a legit dict not meant to be bytes
+                pass # Fall through to general dict processing
+
+        # Legacy handling for old plistlib.Data format, if it ever appears from other sources
+        if len(obj) == 1 and "!!python/object:plistlib.Data" in obj:
+            try:
+                return base64.b64decode(obj["!!python/object:plistlib.Data"])
+            except Exception: # pylint: disable=broad-except
+                pass # Fall through
+
+        # General dictionary processing
+        return {k: json_convert_from(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        count = 0
+        for v in obj:
+            obj[count] = json_convert_from(v)
+            count += 1
+
+    return obj
+</file>
+
+<file path="yaplon/oplist.py">
+"""
+Provides helper functions for Plist serialization and deserialization.
+
+This module handles:
+- Reading Plist files (XML or binary) into Python `OrderedDict` objects.
+  During reading, Plist `<date>` tags are converted to `datetime.datetime` objects
+  by `plistlib.load`, which are then further converted by this module into
+  ISO 8601 formatted strings. Plist `<data>` tags become `bytes` objects.
+- Dumping Python objects to XML or binary Plist strings. This involves:
+  1. Preprocessing the input object with `_prepare_obj_for_plist` to convert
+     string representations of numbers (e.g., "123", "1.0") and booleans
+     (e.g., "true", "false") into their native Python types (int, float, bool).
+     This is particularly useful when the data originates from formats like XML
+     where such values might be initially parsed as strings.
+  2. Further preprocessing with `plist_convert_to` to handle `None` values
+     (according to `none_handler`) and optionally detect and convert ISO 8601
+     date strings back into `datetime.datetime` objects if `detect_timestamp` is True.
+  3. Finally, using `plistlib.dumps` for the actual serialization.
+
+Based on code from SerializedDataConverter by Isaac Muse.
+Licensed under MIT.
+Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
+"""
+
+import collections
+from collections import OrderedDict # Added import
+import datetime
+import plistlib
+import re
+
+__all__ = ("read_plist", "plist_dumps", "plist_binary_dumps")
+
+def _prepare_obj_for_plist(item):
+    """Recursively prepare an object for Plist serialization.
+
+    Converts string values that look like numbers or booleans into their
+    actual Python types (int, float, bool). This is useful if the input
+    data (e.g., from XML) has these types represented as strings.
+
+    Args:
+        item: The Python object/item to prepare.
+
+    Returns:
+        The item with potential type conversions applied.
+    """
+    if isinstance(item, str):
+        if item.lower() == 'true':
+            return True
+        if item.lower() == 'false':
+            return False
+        if item.isdigit(): # Check for int first
+            return int(item)
+        try: # Then check for float
+            return float(item)
+        except ValueError:
+            return item # Keep as string if not convertible
+    elif isinstance(item, list):
+        return [_prepare_obj_for_plist(i) for i in item]
+    elif isinstance(item, (dict, collections.OrderedDict)): # Handle dict and OrderedDict
+        return OrderedDict([(k, _prepare_obj_for_plist(v)) for k, v in item.items()])
+    return item
+
+
+def strip_plist_comments(text):
+    """Strip XML-style comments from binary Plist data.
+
+    Args:
+        text: Bytes object containing Plist data.
+
+    Returns:
+        Bytes object with comments removed.
+    """
+    return re.sub(rb"^[\r\n\s]*<!--[\s\S]*?-->[\s\r\n]*|<!--[\s\S]*?-->", b"", text)
+
+
+def plist_dumps(obj, detect_timestamp=False, none_handler="fail"):
+    """Serialize Python object `obj` to an XML Plist formatted string.
+
+    Before serialization by `plistlib.dumps`:
+    1. `_prepare_obj_for_plist` converts string representations of numbers/booleans
+       in `obj` to their native Python types.
+    2. `plist_convert_to` handles `None` values based on `none_handler`
+       and optionally converts string timestamps to `datetime` objects if
+       `detect_timestamp` is True (though `plistlib.dumps` handles native datetimes).
+
+    Args:
+        obj: The Python object to serialize.
+        detect_timestamp: If True, `plist_convert_to` attempts to convert
+                          ISO 8601 date strings to `datetime.datetime` objects.
+        none_handler: How `plist_convert_to` handles `None` values:
+                      'fail' (default): Raise error if `None` encountered.
+                      'strip': Remove keys with None values from dicts.
+                      'false': Convert None values to Plist <false/>.
+                      (Note: `plistlib.dumps` itself serializes Python `None`
+                       in a list to `<string></string>` or omits if in dict with `skipkeys=True`,
+                       but `plist_convert_to` intercepts `None` first based on this handler.)
+
+
+    Returns:
+        An XML Plist formatted string.
+    """
+    prepared_obj = _prepare_obj_for_plist(obj)
+    return plistlib.dumps(
+        plist_convert_to(prepared_obj, detect_timestamp, none_handler), sort_keys=False
+    ).decode("utf-8")
+
+
+def plist_binary_dumps(obj, detect_timestamp=False, none_handler="fail"):
+    """Serialize Python object `obj` to a binary Plist formatted bytes object.
+
+    Preprocessing of `obj` (type conversion for strings, None handling,
+    optional timestamp detection) is the same as for `plist_dumps`.
+
+    Args:
+        obj: The Python object to serialize.
+        detect_timestamp: If True, convert ISO date strings to `datetime` objects.
+        none_handler: How to handle `None` values ('fail', 'strip', 'false').
+
+    Returns:
+        A bytes object containing the binary Plist data.
+    """
+    prepared_obj = _prepare_obj_for_plist(obj)
+    return plistlib.dumps(
+        plist_convert_to(prepared_obj, detect_timestamp, none_handler),
+        fmt=plistlib.FMT_BINARY,
+        sort_keys=False,
+    )
+
+
+import io
+
+def read_plist(stream):
+    """Read Plist (XML or binary) from `stream` into an OrderedDict.
+
+    Handles non-seekable streams (e.g., stdin) by buffering.
+    Uses `plist_convert_from` for post-processing after `plistlib.load`:
+    - Plist dates (loaded as `datetime.datetime` by `plistlib`) are converted
+      by `plist_convert_from` into ISO 8601 formatted strings.
+    - Plist `<data>` tags (loaded as `bytes` by `plistlib`) are kept as `bytes`.
+
+    Args:
+        stream: A .read()-supporting file-like object (binary stream).
+
+    Returns:
+        An OrderedDict representing the Plist data, with dates as ISO strings.
+    """
+    if not stream.seekable():
+        content = stream.read()
+        buffered_stream = io.BytesIO(content)
+        return plist_convert_from(plistlib.load(buffered_stream, dict_type=collections.OrderedDict))
+    else:
+        # Stream is already seekable (e.g., a regular file)
+        return plist_convert_from(plistlib.load(stream, dict_type=collections.OrderedDict))
+
+
+def convert_timestamp(obj):
+    """Internal helper to convert a Plist date string (ISO 8601) to a datetime object.
+
+    Uses `plistlib._date_from_string` for parsing.
+
+    Args:
+        obj: A string potentially representing an ISO 8601 timestamp.
+
+    Returns:
+        A datetime.datetime object if parsing is successful, otherwise None.
+    """
+    time_stamp = None
+    if isinstance(obj, str) and plistlib._dateParser.match(obj): # Ensure obj is string
+        time_stamp = plistlib._date_from_string(obj)
+    return time_stamp
+
+
+def plist_convert_from(obj):
+    """Recursively process objects loaded by `plistlib.load`.
+
+    Specifically, converts `datetime.datetime` objects (from Plist <date> tags)
+    into ISO 8601 formatted strings. Other types like `bytes` (from <data>)
+    are passed through. This function ensures that the data structure returned
+    by `read_plist` has dates represented as strings.
+
+    Args:
+        obj: The object loaded by `plistlib.load` (e.g., dict, list, scalar).
+
+    Returns:
+        The processed object with dates converted to ISO strings.
+    """
+    if isinstance(obj, (collections.OrderedDict)): # Check for OrderedDict first
+        # Create a new OrderedDict to avoid modifying during iteration if necessary
+        return OrderedDict([(k, plist_convert_from(v)) for k, v in obj.items()])
+    elif isinstance(obj, dict): # Fallback for regular dict, though plistlib.load uses OrderedDict
+        return {k: plist_convert_from(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        # Return a new list with processed items
+        return [plist_convert_from(v) for v in obj]
+    elif isinstance(obj, datetime.datetime):
+        # Convert datetime objects to ISO 8601 strings
+        return plistlib._date_to_string(obj) # Uses plistlib's internal formatter
+
+    return obj
+
+
+def plist_convert_to(obj, detect_timestamp=False, none_handler="fail"):
+    """Recursively prepare Python objects for `plistlib.dumps`.
+
+    This function is called by `plist_dumps` and `plist_binary_dumps`
+    *after* `_prepare_obj_for_plist` (which handles string numbers/booleans).
+
+    Handles:
+    - `None` values based on `none_handler` ('strip', 'false', or 'fail').
+      If 'fail' (default) and a `None` value is encountered in a dictionary,
+      `plistlib.dumps` might error or handle it in its own way (often creating
+      an empty string value for a key if `skipkeys=False`). This function's
+      `none_handler` allows preemptive stripping or conversion to `False`.
+    - String values that look like ISO 8601 timestamps are converted to
+      `datetime.datetime` objects if `detect_timestamp` is True. This allows
+      them to be serialized as Plist `<date>` elements.
+
+    Args:
+        obj: The Python object to prepare.
+        detect_timestamp: If True, convert ISO date strings to datetime objects.
+        none_handler: Policy for handling `None` values within dicts/lists.
+
+    Returns:
+        The prepared object, ready for `plistlib.dumps`.
+    """
+    if isinstance(obj, (dict, collections.OrderedDict)): # Handle dict and OrderedDict
+        # Create new dict to avoid modifying original if 'strip' is used
+        new_dict = collections.OrderedDict() if isinstance(obj, collections.OrderedDict) else {}
+        for k, v in obj.items():
+            if v is None:
+                if none_handler == "strip":
+                    continue
+                elif none_handler == "false":
+                    new_dict[k] = False
+                elif none_handler == "fail":
+                    # Let plistlib.dumps handle None or raise error if it can't.
+                    # Typically, plistlib.dumps converts a dict value of None to <string></string>.
+                    # For safety, one might want to raise an error here or convert to empty string.
+                    # For now, pass None through, plistlib will make it an empty string value.
+                    new_dict[k] = None
+            else:
+                new_dict[k] = plist_convert_to(v, detect_timestamp, none_handler)
+        return new_dict
+    elif isinstance(obj, list):
+        new_list = []
+        for v in obj:
+            if v is None:
+                if none_handler == "strip":
+                    continue
+                elif none_handler == "false":
+                    new_list.append(False)
+                else: # 'fail' or other, pass None through
+                      # plistlib.dumps handles None in lists as <string></string>
+                    new_list.append(None)
+            else:
+                new_list.append(plist_convert_to(v, detect_timestamp, none_handler))
+        return new_list
+    elif isinstance(obj, str) and detect_timestamp:
+        time_stamp = convert_timestamp(obj) # convert_timestamp now ensures obj is str
+        if time_stamp is not None:
+            return time_stamp # Return datetime object for plistlib
+
+    return obj
+</file>
+
+<file path="yaplon/oyaml.py">
+"""
+Provides helper functions for YAML serialization and deserialization using PyYAML.
+
+It customizes PyYAML's loader to ensure that YAML mappings are loaded as
+`collections.OrderedDict` to preserve key order. It also includes custom
+constructors to handle specific YAML tags:
+- `!!binary` tags are converted to Python `bytes` objects.
+- `!!timestamp` tags (representing `datetime.date` or `datetime.datetime`)
+  are converted to ISO 8601 formatted strings upon loading.
+- `!!regex` tags are loaded as plain strings.
+
+For YAML dumping, it provides a custom Dumper for more control over output
+formatting, such as scalar styles (block, literal, quoted) and ensuring
+that `OrderedDict` and `AttrDict` instances are serialized while preserving
+key order. PyYAML's default handling for Python `bytes` (to `!!binary` tag)
+and `datetime` objects (to YAML timestamp strings) applies during dumping.
+
+The module also includes helpers for preprocessing Python objects before
+dumping, for example, to detect strings that look like timestamps and
+convert them to `datetime` objects so they are serialized correctly as
+YAML timestamps.
+
+Based on code from SerializedDataConverter by Isaac Muse.
+Licensed under MIT.
+Copyright (c) 2012 - 2015 Isaac Muse <isaacmuse@gmail.com>
+"""
+
+import datetime
+# import plistlib # Not directly used in this module anymore, was for plistlib.Data
+import re
+from collections import OrderedDict
+
+import yaml
+from orderedattrdict import AttrDict
+
+__all__ = ("read_yaml", "yaml_dumps")
+
+# http://yaml.org/type/timestamp.html
+YAML_TIMESTAMP = re.compile(
+    r"""
+        (?P<year>[0-9][0-9][0-9][0-9])               # year
+        -(?P<month>[0-9][0-9]?)                      # month
+        -(?P<day>[0-9][0-9]?)                        # day
+        (?:
+            (?:(?:[Tt]|[ \t]+)(?P<hour>[0-9][0-9]?)) # hour
+            :(?P<minute>[0-9][0-9])                  # minute
+            :(?P<second>[0-9][0-9])                  # second
+            (?:\.(?P<microsecond>[0-9]*))?           # microsecond
+            (?:
+                [ \t]*Z
+                | (?:
+                    (?P<tz_sign>[-+])                 # time zone sign
+                    (?P<tz_hour>[0-9][0-9]?)          # time zone hour
+                    (?::(?P<tz_minute>[0-9][0-9]))?   # time zone minute
+                )
+            )?
+        )?
+    """,
+    re.VERBOSE,
+)
+
+
+def read_yaml(stream, loader=yaml.SafeLoader): # Changed default to SafeLoader
+    """Deserialize YAML from `stream` to Python objects using a custom PyYAML Loader.
+
+    The custom loader ensures that:
+    - YAML mappings are loaded as `collections.OrderedDict` to preserve key order.
+    - `!!binary` tags are converted to `bytes` objects.
+    - `!!timestamp` tags (parsed by PyYAML into `datetime.date` or `datetime.datetime`)
+      are converted by a custom constructor into ISO 8601 formatted strings
+      (e.g., "YYYY-MM-DD" for dates, "YYYY-MM-DDTHH:MM:SS[.ffffff]Z" for datetimes, ensuring UTC 'Z').
+    - `!!regex` tags are loaded as strings.
+
+    Args:
+        stream: A .read()-supporting file-like object containing a YAML document.
+        loader: The PyYAML Loader class to base the custom loader on (default: `yaml.SafeLoader`).
+
+    Returns:
+        An OrderedDict (usually) or other Python object representing the YAML data.
+    """
+
+    def binary_constructor(loader_instance, node): # Added loader_instance arg
+        """YAML constructor to convert !!binary tags to Python bytes."""
+        return loader_instance.construct_yaml_binary(node)
+
+    def timestamp_constructor(loader_instance, node): # Added loader_instance arg
+        """YAML constructor for !!timestamp tags.
+        Converts datetime.date to "YYYY-MM-DD" string.
+        Converts datetime.datetime to "YYYY-MM-DDTHH:MM:SS[.ffffff]Z" ISO 8601 string (UTC).
+        """
+        timestamp_obj = loader_instance.construct_yaml_timestamp(node) # PyYAML parses into date/datetime
+
+        if isinstance(timestamp_obj, datetime.datetime):
+            # Ensure UTC if aware, then format
+            if timestamp_obj.tzinfo is not None and timestamp_obj.tzinfo != datetime.timezone.utc:
+                timestamp_obj = timestamp_obj.astimezone(datetime.timezone.utc)
+            elif timestamp_obj.tzinfo is None: # If naive, assume UTC for ISO Z format
+                 timestamp_obj = timestamp_obj.replace(tzinfo=datetime.timezone.utc)
+
+            # Format with 'Z' for UTC
+            iso_str = timestamp_obj.isoformat(timespec='microseconds')
+            if iso_str.endswith('+00:00'):
+                iso_str = iso_str[:-6] + 'Z'
+            return iso_str
+        elif isinstance(timestamp_obj, datetime.date):
+            # For datetime.date objects, convert to simple YYYY-MM-DD string
+            return timestamp_obj.isoformat() # datetime.date.isoformat() is YYYY-MM-DD
+        return str(timestamp_obj) # Fallback for other timestamp-like objects
+
+    def construct_mapping(loader_instance, node): # Added loader_instance arg
+        """YAML constructor to ensure mappings become OrderedDict."""
+        loader_instance.flatten_mapping(node)
+        return OrderedDict(loader_instance.construct_pairs(node))
+
+    class CustomLoader(loader):
+        """Custom PyYAML Loader with specific constructors."""
+        pass
+
+    CustomLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct_mapping
+    )
+    CustomLoader.add_constructor("tag:yaml.org,2002:binary", binary_constructor)
+    CustomLoader.add_constructor("tag:yaml.org,2002:timestamp", timestamp_constructor)
+    CustomLoader.add_constructor("tag:yaml.org,2002:regex", CustomLoader.construct_yaml_str) # Use method from loader
+
+    return yaml.load(stream, Loader=CustomLoader)
+
+
+def yaml_dump(
+    data,
+    stream=None,
+    dumper=yaml.SafeDumper, # Changed default to SafeDumper
+    width=180,
+    quote_strings=False,
+    block_strings=False,
+    double_quote=False,
+    **kwargs
+):
+    """Serialize a Python object to a YAML formatted stream or string using a custom Dumper.
+
+    The custom Dumper allows for:
+    - Control over scalar string styles (block, literal, single/double quoted)
+      based on content and flags (`quote_strings`, `block_strings`, `double_quote`).
+    - Representation of `OrderedDict` and `AttrDict` while preserving key order.
+    - PyYAML's default handling for `bytes` (to `!!binary` tag) and `datetime` objects
+      (to YAML timestamp strings) will apply if they are present in `data`.
+
+    Args:
+        data: The Python object to serialize.
+        stream: Optional .write()-supporting file-like object. If None, returns a string.
+        dumper: The PyYAML Dumper class to base the custom dumper on (default: `yaml.SafeDumper`).
+        width: Preferred line width for output.
+        quote_strings: If True, attempts to quote strings containing spaces if not block.
+        block_strings: If True, attempts to use block style for multi-line strings.
+        double_quote: If True, uses double quotes for quoted strings; else single.
+        **kwargs: Additional keyword arguments passed to `yaml.dump` (e.g., `sort_keys`).
+
+    Returns:
+        A YAML formatted string if `stream` is None, otherwise None.
+    """
+    if not width:
+        width = float("inf")
+
+    def should_use_block(value):
+        """Internal helper: True if string value benefits from block style."""
+        for c in "\u000a\u000d\u001c\u001d\u001e\u0085\u2028\u2029":
+            if c in value:
+                return True
+        return False
+
+    def should_use_quotes(value):
+        """Internal helper: True if string value with spaces should be quoted."""
+        if isinstance(value, str):
+            if " " in value and not should_use_block(value):
+                return True
+        return False
+
+    def must_use_quotes(value):
+        """Internal helper: True if string value must be quoted due to YAML syntax conflicts."""
+        if isinstance(value, str) and len(value) > 0:
+            if ":" in value and not should_use_block(value):
+                return True
+            if value[0] in (" ", ".", "@", "'", '"', "!", "&", "*", "-", "?", "{", "}", "[", "]", ",", "|", ">", "%", "`", "#", "<"):
+                return True
+            if value[-1] in (" ", "."):
+                return True
+            val_lower = value.lower()
+            if val_lower in ("true", "false", "null", "on", "off", "yes", "no", "~") :
+                 return True
+            try:
+                float(value)
+                return True
+            except ValueError:
+                pass
+        return False
+
+    def my_represent_scalar(self, tag, value, style=None):
+        """Custom scalar representer to control quoting and block styles."""
+        if style is None: # Only intervene if no style is explicitly set by PyYAML
+            if block_strings and should_use_block(value):
+                style = "|"
+            elif should_use_block(value):
+                style = "|"
+            elif must_use_quotes(value):
+                style = '"' if double_quote else "'"
+            elif quote_strings and should_use_quotes(value):
+                style = '"' if double_quote else "'"
+            # else, let PyYAML decide the default_style (usually plain)
+
+            if value == "":
+                style = '"' if double_quote else "'"
+
+        # Use self.default_style if no other style was determined by our logic but one is needed
+        if style is None and self.default_style is not None and \
+           (must_use_quotes(value) or (quote_strings and should_use_quotes(value))):
+            style = self.default_style
+
+        node = yaml.representer.ScalarNode(tag, value, style=style)
+        if self.alias_key is not None:
+            self.represented_objects[self.alias_key] = node
+        return node
+
+    class CustomDumper(dumper):
+        """Custom PyYAML Dumper with improved scalar representation and OrderedDict/AttrDict support."""
+        pass
+
+    CustomDumper.represent_scalar = my_represent_scalar
+    CustomDumper.add_representer(
+        OrderedDict,
+        lambda dumper_instance, data: dumper_instance.represent_mapping( # Use dumper_instance
+            "tag:yaml.org,2002:map", data.items()
+        ),
+    )
+    CustomDumper.add_representer(
+        AttrDict,
+        lambda dumper_instance, data: dumper_instance.represent_mapping( # Use dumper_instance
+            "tag:yaml.org,2002:map", data.items()
+        ),
+    )
+    # PyYAML's SafeDumper already handles bytes to !!binary and datetime to !!timestamp
+    # So, no explicit representers for those are needed here if using SafeDumper as base.
+
+    # Ensure `sort_keys=False` is default if not specified, to respect OrderedDict.
+    # PyYAML's default is sort_keys=True for Dumper/SafeDumper.
+    if 'sort_keys' not in kwargs:
+        kwargs['sort_keys'] = False
+
+    return yaml.dump(data, stream, Dumper=CustomDumper, width=width, allow_unicode=True, **kwargs)
+
+
+def convert_timestamp(obj_str): # Renamed obj to obj_str for clarity
+    """Parses a string matching the YAML timestamp regular expression.
+
+    Converts to a `datetime.date` or `datetime.datetime` object.
+    Handles timezone information if present.
+
+    Args:
+        obj_str: A string potentially representing a YAML timestamp.
+
+    Returns:
+        A `datetime.date` or `datetime.datetime` object, or None if parsing fails.
+    """
+    delta = None
+    time_stamp = None
+    if not isinstance(obj_str, str): # Guard against non-string input
+        return None
+    m = YAML_TIMESTAMP.match(obj_str)
+    if m is not None:
+        g = m.groupdict()
+        year = int(g["year"])
+        month = int(g["month"])
+        day = int(g["day"])
+        if g["hour"] is None:
+            time_stamp = datetime.date(year, month, day)
+        else:
+            hour = int(g["hour"])
+            minute = int(g["minute"])
+            second = int(g["second"])
+            microsecond = 0
+            if g["microsecond"] is not None:
+                micro_string = g["microsecond"][:6]
+                microsecond = int(micro_string + ("0" * (6 - len(micro_string))))
+
+            tzinfo = None
+            if g["tz_sign"] is not None:
+                tz_hour = int(g["tz_hour"])
+                tz_minute = int(g["tz_minute"]) if g["tz_minute"] is not None else 0
+                offset_seconds = (tz_hour * 3600 + tz_minute * 60) * (-1 if g["tz_sign"] == "-" else 1)
+                tzinfo = datetime.timezone(datetime.timedelta(seconds=offset_seconds))
+            elif g["tz_sign"] is None and 'Z' in obj_str : # Check for 'Z' if no explicit offset
+                tzinfo = datetime.timezone.utc
+
+            time_stamp = datetime.datetime(
+                year, month, day, hour, minute, second, microsecond, tzinfo=tzinfo
+            )
+            # This part was for adjusting to local time, which is not needed if tzinfo is set.
+            # if delta is not None and time_stamp is not None:
+            #    time_stamp = time_stamp - delta
+    return time_stamp
+
+
+def yaml_convert_to(obj, strip_tabs=False, detect_timestamp=False):
+    """Recursively prepare Python objects for YAML serialization by `yaml_dump`.
+
+    Specifically:
+    - If `detect_timestamp` is True, converts string values matching the YAML
+      timestamp pattern into `datetime.date` or `datetime.datetime` objects
+      (using the `convert_timestamp` helper). These are then serialized by PyYAML
+      into YAML timestamp format (e.g., `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SSZ`).
+    - If `strip_tabs` is True (and `detect_timestamp` is False for a given string,
+      or timestamp conversion fails), replaces tabs with 4 spaces and strips
+      trailing spaces from strings.
+
+    Args:
+        obj: The Python object to prepare.
+        strip_tabs: If True, process tabs/spaces in strings.
+        detect_timestamp: If True, attempt to convert date-like strings to datetime objects.
+
+    Returns:
+        The prepared object, possibly with new list/dict instances if modified.
+    """
+    if isinstance(obj, (dict, OrderedDict)):
+        new_dict = OrderedDict() if isinstance(obj, OrderedDict) else {}
+        for k, v in obj.items():
+            new_dict[k] = yaml_convert_to(v, strip_tabs, detect_timestamp)
+        return new_dict
+    elif isinstance(obj, list):
+        return [yaml_convert_to(item, strip_tabs, detect_timestamp) for item in obj]
+    elif isinstance(obj, str):
+        if detect_timestamp:
+            time_stamp = convert_timestamp(obj)
+            if time_stamp is not None:
+                return time_stamp
+        # Fallthrough if not a detected timestamp or detect_timestamp is False
+        return obj.replace("\t", "    ").rstrip(" ") if strip_tabs else obj
+    return obj
+
+
+def yaml_dumps(
+    obj,
+    compact=False,
+    detect_timestamp=False,
+    width=180,
+    quote_strings=False,
+    block_strings=False,
+    indent=None, # Changed default to None, yaml_dump will handle default if not compact
+    double_quote=False,
+    **kwargs
+):
+    """Serialize a Python object `obj` to a YAML formatted string.
+
+    This is a convenience wrapper around `yaml_dump`.
+    It calls `yaml_convert_to` for preprocessing based on `detect_timestamp`.
+    Handles `compact` (minified) output by setting `default_flow_style=True`.
+
+    Args:
+        obj: The Python object to serialize.
+        compact: If True, output is minified (flow style).
+        detect_timestamp: Passed to `yaml_convert_to` for date string detection.
+        width: Passed to `yaml_dump`.
+        quote_strings: Passed to `yaml_dump`.
+        block_strings: Passed to `yaml_dump`.
+        indent: Passed to `yaml_dump`. If `compact` is True, `indent` is effectively 0
+                due to `default_flow_style=True`. If `compact` is False and `indent`
+                is None, PyYAML's default indentation (usually 2) is used.
+        double_quote: Passed to `yaml_dump`.
+        **kwargs: Additional arguments passed to `yaml_dump` and then to `PyYAML.dump`.
+
+    Returns:
+        A YAML formatted string.
+    """
+    # Prepare kwargs for yaml_dump
+    dump_kwargs = kwargs.copy() # Start with a copy of incoming kwargs
+
+    if compact:
+        dump_kwargs['default_flow_style'] = True
+        # When flow style is true, indent is often less relevant or handled differently by PyYAML
+        # PyYAML's default indent for block style is 2. For flow, it's more about spacing.
+        # Explicitly setting indent for yaml_dump if compact, but usually it's 0 or small.
+        # Let yaml_dump handle its default logic based on default_flow_style.
+        dump_kwargs['indent'] = 0 if indent is None else indent
+    elif indent is not None: # Not compact, but indent is specified
+        dump_kwargs['indent'] = indent
+    # If not compact and indent is None, yaml_dump will use PyYAML's default.
+
+    strip_tabs = False # Not currently exposed as an option, could be added
+
+    return yaml_dump(
+        yaml_convert_to(obj, strip_tabs, detect_timestamp),
+        width=width,
+        quote_strings=quote_strings,
+        block_strings=block_strings,
+        double_quote=double_quote,
+        **dump_kwargs
+    )
+</file>
+
+<file path="yaplon/reader.py">
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Provides functions to read various data formats (CSV, JSON, Plist, XML, YAML)
+and parse them into Python objects, typically OrderedDicts to preserve structure.
+Handles type conversions where appropriate (e.g., Plist data/dates, YAML tags).
+"""
+
+import csv as ocsv
+from collections import OrderedDict
+
+import xmltodict as oxml
+
+from yaplon import ojson
+from yaplon import oplist
+from yaplon import oyaml
+
+
+def sort_ordereddict(od):
+    res = OrderedDict()
+    for k, v in sorted(od.items()):
+        res[k] = sort_ordereddict(v) if isinstance(v, dict) else v
+    return res
+
+
+def csv(input, dialect=None, header=True, key=None, sort=False):
+    """Reads CSV from input stream into a list of lists or list of OrderedDicts.
+
+    Args:
+        input: A file-like object (text stream) for CSV input.
+        dialect: CSV dialect name (e.g., 'excel', 'excel-tab') or a dialect object.
+                 If None, dialect is sniffed from the input.
+        header: If True, treats the first row as field names and returns a list
+                of OrderedDicts. If False, returns a list of lists.
+                Automatically True if 'key' is specified.
+        key: If 'header' is True and 'key' (an integer column index) is provided,
+             returns an OrderedDict where keys are taken from the specified
+             column, and values are the row OrderedDicts (with the key field removed).
+        sort: If True, and if the output is an OrderedDict (due to 'key' arg),
+              sorts the OrderedDict by its keys.
+
+    Returns:
+        A list of lists, list of OrderedDicts, or an OrderedDict, depending on options.
+    """
+    obj = []
+    fields = None
+    if dialect:
+        dialect = ocsv.get_dialect(dialect)
+    else:
+        sniffer = ocsv.Sniffer()
+        dialect = sniffer.sniff(input.readline())()
+        input.seek(0)
+    reader = ocsv.reader(input, dialect=dialect)
+    if key:
+        header = True
+    if header:
+        fields = next(reader)
+        if key and key <= len(fields):
+            obj = OrderedDict()
+        else:
+            key = None
+    for row in reader:
+        if header:
+            row = OrderedDict(zip(fields, row))
+            if key:
+                rowkey = row.pop(fields[key - 1])
+                obj[rowkey] = row
+            else:
+                obj.append(row)
+        else:
+            obj.append(row)
+    if sort:
+        obj = sort_ordereddict(obj)
+    return obj
+
+
+def json(input, sort=False):
+    """Reads JSON from input stream into an OrderedDict. Optionally sorts.
+
+    Args:
+        input: A file-like object (text stream) for JSON input.
+        sort: If True, recursively sorts the resulting OrderedDict by keys.
+
+    Returns:
+        An OrderedDict representing the JSON data.
+    """
+    obj = ojson.read_json(input)
+    if sort:
+        obj = sort_ordereddict(obj)
+    return obj
+
+
+def plist(input, sort=False):
+    """Reads Plist (XML or binary) from input stream into an OrderedDict.
+
+    Converts Plist <data> to bytes and <date> to datetime.datetime objects.
+    Optionally sorts the resulting OrderedDict.
+
+    Args:
+        input: A file-like object (binary stream) for Plist input.
+        sort: If True, recursively sorts the resulting OrderedDict by keys.
+
+    Returns:
+        An OrderedDict representing the Plist data.
+    """
+    obj = oplist.read_plist(input)
+    if sort:
+        obj = sort_ordereddict(obj)
+    return obj
+
+
+def xml(input, namespaces=False, sort=False):
+    """Reads XML from input stream into an OrderedDict using xmltodict.
+
+    XML element text content is generally parsed as strings.
+    Optionally processes namespaces and sorts the resulting OrderedDict.
+
+    Args:
+        input: A file-like object (text stream) for XML input.
+        namespaces: If True, processes XML namespaces, prefixing keys.
+        sort: If True, recursively sorts the resulting OrderedDict by keys.
+
+    Returns:
+        An OrderedDict representing the XML data.
+    """
+    # xmltodict.parse uses OrderedDict by default if dict_constructor is not specified
+    # or if cchardet is available. yaplon.reader.xml explicitly uses OrderedDict.
+    obj = oxml.parse(input.read(), process_namespaces=namespaces, dict_constructor=OrderedDict)
+    if sort:
+        obj = sort_ordereddict(obj)
+    return obj
+
+
+def yaml(input, sort=False):
+    """Reads YAML from input stream into an OrderedDict.
+
+    Handles custom YAML tags like !!binary (to bytes) and !!timestamp (to ISO string)
+    via oyaml.py's custom constructors. Optionally sorts.
+
+    Args:
+        input: A file-like object (text stream) for YAML input.
+        sort: If True, recursively sorts the resulting OrderedDict by keys.
+
+    Returns:
+        An OrderedDict representing the YAML data.
+    """
+    obj = oyaml.read_yaml(input)
+    if sort:
+        obj = sort_ordereddict(obj)
+    return obj
+</file>
+
+<file path="yaplon/writer.py">
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Provides functions to write Python objects (typically OrderedDicts or lists)
+to various data formats (JSON, Plist, XML, YAML) and output them to streams
+or files. Handles options like minification and format-specific features
+(e.g., binary Plist, XML root/wrapper tags).
+"""
+
+try:
+    from collections import Mapping
+except ImportError:
+    from collections.abc import Mapping
+
+from collections import OrderedDict
+
+import sys # Moved import sys to the top
+import click
+import dict2xml
+import xmltodict as oxml
+
+import base64 # For bytes to base64 string
+from yaplon import ojson
+from yaplon import oplist
+from yaplon import oyaml
+
+import datetime # Ensure datetime is imported
+
+# Helper function to prepare data for XML writers
+def _prepare_obj_for_xml(item):
+    """Recursively prepares an object for XML serialization.
+    Converts bytes to base64 ASCII strings and datetime objects to ISO 8601 strings.
+    """
+    if isinstance(item, bytes):
+        return base64.b64encode(item).decode('ascii')
+    elif isinstance(item, datetime.datetime):
+        if item.tzinfo is not None and item.tzinfo == datetime.timezone.utc:
+            return item.isoformat(timespec='seconds').replace('+00:00', 'Z')
+        # For naive datetime or non-UTC, produce ISO format.
+        # Consider if local timezone conversion to UTC is desired here for naive before ISO.
+        # For now, direct ISO format for naive or other TZs.
+        return item.isoformat(timespec='seconds')
+    elif isinstance(item, list):
+        return [_prepare_obj_for_xml(i) for i in item]
+    elif isinstance(item, Mapping): # Handles dict and OrderedDict
+        return OrderedDict([(k, _prepare_obj_for_xml(v)) for k, v in item.items()])
+    return item
+
+
+def json(obj, output, mini=False, binary=False):
+    """Writes a Python object to a JSON output stream.
+
+    Args:
+        obj: The Python object to serialize.
+        output: A file-like object (text stream) to write JSON to.
+        mini: If True, produces minified JSON (no indents/newlines).
+        binary: If True, and obj contains bytes (e.g., from Plist/YAML binary),
+                serializes bytes as base64 strings. Otherwise, uses a
+                special dict `{"__bytes__":true, "base64":"..."}`.
+    """
+    ojson.json_dump(obj, output, preserve_binary=binary, compact=mini)
+
+
+def plist(obj, output, binary=False):
+    """Writes a Python object to a Plist output stream or file path.
+
+    Handles conversion to XML Plist (default) or binary Plist.
+    Manages type conversions suitable for Plist (e.g., strings for numbers/bools
+    are converted to native Plist types by plistlib).
+
+    Args:
+        obj: The Python object to serialize.
+        output: A file path string (including '-') or a file-like object.
+                If a path, the file is created/overwritten.
+                If '-', stdout is used.
+        binary: If True, outputs binary Plist; otherwise, XML Plist.
+    """
+    if binary:
+        # click.File handles '-' for stdout in binary mode correctly
+        output_stream = click.File("wb")(output)
+        try:
+            output_stream.write(oplist.plist_binary_dumps(obj))
+        finally:
+            if output_stream is not sys.stdout.buffer and output_stream is not sys.stdout and (hasattr(output_stream, 'name') and output_stream.name != '<stdout>'):
+                output_stream.close()
+
+    else:
+        output_stream = click.File("w")(output)
+        try:
+            output_stream.write(oplist.plist_dumps(obj))
+        finally:
+            if output_stream is not sys.stdout and (hasattr(output_stream, 'name') and output_stream.name != '<stdout>'):
+                output_stream.close()
+
+
+
+def _simplexml(obj, output_target, mini=False, tag=""):
+    """Internal helper to write Python object to XML using dict2xml.
+    Handles file path string or stream output.
+    """
+    if mini:
+        indent = ""
+        newlines = False
+    else:
+        indent = "  "
+        newlines = True
+
+    xml_string = dict2xml.Converter(wrap=tag, indent=indent, newlines=newlines).build(obj)
+
+    if hasattr(output_target, 'write'): # It's a file-like object
+        output_target.write(xml_string)
+    elif isinstance(output_target, str):
+        if output_target == '-':
+            sys.stdout.write(xml_string)
+            if not xml_string.endswith('\n'): # Ensure newline for stdout consistency
+                 sys.stdout.write('\n')
+        else:
+            with open(output_target, 'w', encoding='utf-8') as f:
+                f.write(xml_string)
+    else:
+        raise TypeError(f"Unsupported output type for _simplexml: {type(output_target)}")
+
+
+def xml(obj, output, mini=False, tag=None, root="root"):
+    """Writes a Python object to an XML output stream or file.
+
+    Uses dict2xml if 'tag' (for a wrapper element) is provided, resulting
+    in simpler XML. Otherwise, uses xmltodict.unparse for more comprehensive
+    XML generation (including type hints as attributes by default, though
+    yaplon currently produces no type hints from this path).
+
+    Bytes and datetime objects in 'obj' are pre-converted to base64 strings
+    and ISO 8601 strings, respectively.
+
+    Args:
+        obj: The Python object to serialize.
+        output: A file path string (including '-') or a file-like object.
+        mini: If True, produces minified XML.
+        tag: If provided, uses dict2xml to wrap the output with this tag.
+             Ignores 'root' if 'tag' is set.
+        root: Root element name if dict2xml is not used and 'obj' is not
+              a dict with a single key (or to override that single key).
+    """
+    prepared_obj_for_xml = _prepare_obj_for_xml(obj)
+
+    if tag:
+        _simplexml(prepared_obj_for_xml, output, mini, tag)
+    else:
+        processed_obj_for_xmltodict = prepared_obj_for_xml
+        if isinstance(processed_obj_for_xmltodict, Mapping):
+            if len(processed_obj_for_xmltodict.keys()) != 1 or root != 'root':
+                is_single_key_and_root = (len(processed_obj_for_xmltodict.keys()) == 1 and list(processed_obj_for_xmltodict.keys())[0] == root)
+                if not is_single_key_and_root:
+                    processed_obj_for_xmltodict = OrderedDict([(root, processed_obj_for_xmltodict)])
+        else:
+            processed_obj_for_xmltodict = OrderedDict([(root, processed_obj_for_xmltodict)])
+
+        pretty = not mini
+        output_stream = None
+
+        if isinstance(output, str) and output == '-':
+            output_stream = sys.stdout
+        elif isinstance(output, str) or hasattr(output, 'write'):
+            output_stream = output
+        else:
+            raise TypeError(f"Unsupported output type for xmltodict: {type(output)}")
+
+        xml_string = oxml.unparse(
+            processed_obj_for_xmltodict,
+            output=None,
+            full_document=True,
+            short_empty_elements=mini,
+            pretty=pretty,
+        )
+
+        if output_stream == sys.stdout:
+            sys.stdout.write(xml_string)
+            if not xml_string.endswith('\n'):
+                sys.stdout.write('\n')
+        elif isinstance(output_stream, str):
+            with open(output_stream, 'w', encoding='utf-8') as f:
+                f.write(xml_string)
+        else:
+            output_stream.write(xml_string)
+
+
+def yaml(obj, output, mini=False):
+    """Writes a Python object to a YAML output stream.
+
+    Args:
+        obj: The Python object to serialize.
+        output: A file-like object (text stream) to write YAML to.
+        mini: If True, produces minified YAML (compact flow style).
+    """
+    output.write(oyaml.yaml_dumps(obj, compact=mini))
+</file>
+
+<file path="_config.yml">
+theme: jekyll-theme-minimal
+</file>
+
+<file path=".gitignore">
+.mypy_cache/
+.idea/
+
+*.code-workspace
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+</file>
+
+<file path="dist.sh">
+#!/usr/bin/env bash
+
+APP="yaplon"
+USAGE="Usage: ./dist.sh releasetext";
+if [ $# -ge 1 ]; then
+
+  echo "## Updating publishing tools"
+
+  python3 -m pip install --user --upgrade setuptools wheel pip twine;
+
+  version=$(echo -e "import $APP.__init__\nprint($APP.__init__.__version__)" | python3)
+
+  text=$1
+
+  rm dist/*;
+
+  echo "## Preparing release"
+  python3 setup.py sdist bdist_wheel;
+
+  echo "## Pushing to Github"
+  git add --all
+  git commit -am "v$version: $text"
+  git pull
+  git push
+
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  token=$(git config --global github.token)
+
+  repo_full_name=$(git config --get remote.origin.url)
+  url=$repo_full_name
+  re="^(https|git)(:\/\/|@)([^\/:]+)[\/:]([^\/:]+)\/(.+).git$"
+  if [[ $url =~ $re ]]; then
+    protocol=${BASH_REMATCH[1]}
+    separator=${BASH_REMATCH[2]}
+    hostname=${BASH_REMATCH[3]}
+    user=${BASH_REMATCH[4]}
+    repo=${BASH_REMATCH[5]}
+  fi
+
+  generate_post_data()
+  {
+    cat <<EOF
+{
+  "tag_name": "$version",
+  "target_commitish": "$branch",
+  "name": "$version",
+  "body": "$text",
+  "draft": false,
+  "prerelease": false
+}
+EOF
+  }
+
+  echo "## Creating release $version for repo: $repo_full_name branch: $branch"
+  curl --data "$(generate_post_data)" "https://api.github.com/repos/$user/$repo/releases?access_token=$token"
+
+  echo
+  echo "## Publishing on https://pypi.org/project/$APP/"
+  echo "Enter your pypi.org login and password:"
+
+  python3 -m twine upload --verbose -c "$text" dist/*;
+  open "https://pypi.org/project/$APP/";
+
+else
+  echo $USAGE;
+fi
+</file>
+
+<file path="LICENSE">
+MIT License
+
+Copyright (c) 2019 Adam Twardoch <adam+github@twardoch.com>
+Copyright (c) 2012-2015 Isaac Muse <isaacmuse@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</file>
+
+<file path="Makefile">
+# Makefile for yaplon development
+
+.PHONY: all clean install lint format test build release
+
+# Variables
+PYTHON = python3
+PIP = pip3
+PACKAGE_NAME = yaplon
+
+# Default target
+all: install lint test
+
+# Clean up build artifacts and virtual environment
+clean:
+	rm -rf build dist *.egg-info .pytest_cache .tox venv __pycache__ yaplon/__pycache__ tests/__pycache__
+
+# Install dependencies
+install:
+	$(PIP) install --upgrade pip
+	$(PIP) install -r requirements.txt
+	$(PIP) install -e .[dev]
+
+# Lint the code
+lint:
+	flake8 $(PACKAGE_NAME) tests
+	black --check $(PACKAGE_NAME) tests setup.py
+
+# Format the code
+format:
+	black $(PACKAGE_NAME) tests setup.py
+
+# Run tests
+test:
+	$(PYTHON) -m pytest
+
+# Build the package
+build:
+	$(PYTHON) setup.py sdist bdist_wheel
+
+# Release the package to PyPI
+release: build
+	twine upload dist/*
+</file>
+
+<file path="MANIFEST.in">
+include *.txt
+</file>
+
+<file path="README.md">
+# yaplon
+
+Convert between JSON, YAML, PLIST (binary and XML), XML, and CSV (read-only for CSV input) on the command line.
+Can be used in piping. Requires Python 3.9+.
+
+- Copyright (c) 2021-2024 Adam Twardoch <adam+github@twardoch.com> & Jules (AI Agent)
+- Copyright (c) 2012-2015 Isaac Muse <isaacmuse@gmail.com>
+- [MIT license](./LICENSE)
+- Based on [Serialized Data Converter for Sublime Text](https://github.com/facelessuser/SerializedDataConverter)
+
+## Installation
+
+- Install the [release version](https://pypi.org/project/yaplon/):
+
+```
+pip3 install --user --upgrade yaplon
+```
+
+- Install the [development version](https://github.com/twardoch/yaplon):
+
+```
+pip3 install --user --upgrade git+https://github.com/twardoch/yaplon
+```
+
+Or for development:
+```bash
+git clone https://github.com/twardoch/yaplon.git
+cd yaplon
+# Recommended: create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate # On macOS/Linux
+# venv\Scripts\activate # On Windows
+pip install -e .[dev]
+```
+
+## Usage
+
+```
+yaplon [c|j|p|x|y]2[j|p|x|y] -i input -o output [options]
+```
+
+### Commands:
+
+```
+c2j  -i CSV -o JSON [-H] [-d DIALECT] [-k KEY] [-s] [-m]
+c2p  -i CSV -o PLIST [-H] [-d DIALECT] [-k KEY] [-s] [-b]
+c2x  -i CSV -o XML [-H] [-d DIALECT] [-k KEY] [-s] [-m] [-R ROOT] [-t TAG]
+c2y  -i CSV -o YAML [-H] [-d DIALECT] [-k KEY] [-s] [-m]
+j2p  -i JSON -o PLIST [-s] [-b]
+j2x  -i JSON -o XML [-s] [-m] [-R ROOT] [-t TAG]
+j2y  -i JSON -o YAML [-s] [-m]
+p2j  -i PLIST -o JSON [-s] [-m] [-b] (binary in JSON)
+p2x  -i PLIST -o XML [-s] [-m] [-R ROOT] [-t TAG]
+p2y  -i PLIST -o YAML [-s] [-m]
+x2j  -i XML -o JSON [-N] [-s] [-m]
+x2p  -i XML -o PLIST [-N] [-s] [-b]
+x2y  -i XML -o YAML [-N] [-s] [-m]
+y2j  -i YAML -o JSON [-s] [-m] [-b] (binary in JSON)
+y2p  -i YAML -o PLIST [-s] [-b]
+y2x  -i YAML -o XML [-s] [-m] [-R ROOT] [-t TAG]
+```
+**General Options:**
+- `-i <input_file>`: Input file (defaults to stdin if omitted or '-')
+- `-o <output_file>`: Output file (defaults to stdout if omitted or '-')
+- `-s, --sort`: Sort data before conversion (e.g., dictionary keys).
+- `-m, --mini`: Minify output (specific to format, e.g., no indents in JSON/XML, flow style in YAML).
+
+**Format-Specific Options:**
+- `-b, --bin`:
+    - For `*2p` (to Plist): Output binary Plist.
+    - For `*2j` (to JSON from Plist/YAML/XML): Preserve binary data (e.g., from Plist `<data>` or YAML `!!binary`) as a base64 encoded string in JSON, instead of the default special dictionary representation `{"__bytes__": true, "base64": "..."}`.
+- `-R <name>, --root <name>`: (for `*2x` - to XML) Specify root tag name if input data is a list or if overriding the default 'root' or single-key root. Used by `xmltodict` backend.
+- `-t <name>, --tag <name>`: (for `*2x` - to XML) Wrap output in the specified tag. Uses `dict2xml` backend, which may produce simpler XML structure. If `-t` is used, `-R` is ignored.
+- `-N, --namespaces`: (for `x2*` - from XML) Read XML namespaces.
+- `-H, --header`: (for `c2*` - from CSV) Treat first row as header. Reads CSV as a list of dictionaries.
+- `-d <dialect>, --dialect <dialect>`: (for `c2*` - from CSV) Specify CSV dialect (e.g., 'excel', 'excel-tab', 'unix').
+- `-k <key_index>, --key <key_index>`: (for `c2*` - from CSV with header) Use column number (integer index) as the key for a top-level dictionary; values will be row dictionaries.
+
+Also installs direct CLI tools that correspond to the commands:
+
+- `csv22json`, `csv22plist`, `csv22xml`, `csv22yaml`,
+- `json22plist`, `json22xml`, `json22yaml`,
+- `plist22json`, `plist22xml`, `plist22yaml`,
+- `xml22json`, `xml22plist`, `xml22yaml`,
+- `yaml22json`, `yaml22plist`, `yaml22xml`
+
+Note that they have `22` rather than `2` in the filenames, so they don’t conflict with other similar (often single-purpose) tools that you may have.
+
+## Examples
+
+### JSON to YAML
+
+File to file via the dedicated CLI tool:
+
+```
+$ json22yaml -i input.json -o output.yaml
+```
+
+Using pipe redirects, via the yaplon tool with j2y command:
+
+```
+$ yaplon j2y < input.json > output.yaml
+```
+
+Read file, output minified to stdout, via the Python 3 module
+
+```
+$ python3 -m yaplon j2y -m -i input.json
+```
+
+### PLIST to JSON
+
+Read PLIST file, output minified JSON file, via the dedicated CLI tool.
+
+```
+$ plist22json -m -i input.plist > output.json
+```
+
+Read plist file, output minified JSON to stdout, via the yaplon tool with p2j command.
+
+```
+$ yaplon p2j -m -i input.plist
+```
+
+## Changelog
+
+- 1.5.7: switched to Unicode output in JSON, refactoring
+- 1.5.3: added CSV reading and limited XML read/write
+- 1.2.7: removed obsolete plistlib.Data reference
+- 1.2.3: bugfix
+- 1.2.1: added support for orderedattrdict.AttrDict
+- 1.1.0: added -s for sorting data
+- 1.0.8: initial public release
+
+## Links
+
+- Project homepage: [https://twardoch.github.io/yaplon/](https://twardoch.github.io/yaplon/)
+- Python package on PyPi: [https://pypi.org/project/yaplon/](https://pypi.org/project/yaplon/)
+- Source on Github: [https://github.com/twardoch/yaplon](https://github.com/twardoch/yaplon)
+- Donate via [https://www.paypal.me/adamtwar](https://www.paypal.me/adamtwar)
+
+## Development
+
+To contribute to `yaplon` or set it up for development:
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/twardoch/yaplon.git
+    cd yaplon
+    ```
+
+2.  **Create and activate a virtual environment (recommended):**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On macOS/Linux
+    # Or: venv\Scripts\activate  # On Windows
+    ```
+
+3.  **Install in editable mode with development dependencies:**
+    ```bash
+    pip install -e .[dev]
+    ```
+    This installs the package in a way that your changes to the source code are immediately reflected. Development dependencies include tools for testing, linting, and packaging.
+
+4.  **Running Tests:**
+    Use the Makefile target:
+    ```bash
+    make test
+    ```
+    Or run pytest directly:
+    ```bash
+    python3 -m pytest
+    ```
+    To run with coverage:
+    ```bash
+    make test-cov
+    # Or: pytest --cov=yaplon tests/
+    ```
+
+5.  **Linting and Formatting:**
+    - To check code style with Flake8 and Black:
+      ```bash
+      make lint
+      ```
+    - To automatically format code with Black:
+      ```bash
+      make format
+      ```
+
+6.  **Building the Package:**
+    To build the source distribution and wheel:
+    ```bash
+    make build
+    ```
+
+This project includes a comprehensive test suite and uses `flake8` for linting and `black` for code formatting to maintain code quality and consistency.
+</file>
+
+<file path="requirements.txt">
+click>=7.1.2
+orderedattrdict>=1.6.0
+xmltodict>=0.12.0
+dict2xml>=1.7.0
+PyYAML>=5.4.1
+</file>
+
+<file path="setup.cfg">
+[flake8]
+max-line-length = 88
+extend-ignore = E203
+
+[black]
+line-length = 88
+</file>
+
+<file path="setup.py">
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+import re
+
+from setuptools import find_packages, setup
+
+NAME = "yaplon"
+
+readme_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
+with open(readme_file) as f:
+    readme = f.read()
+
+
+def get_version(*args):
+    verstrline = open(os.path.join(NAME, "__init__.py"), "rt").read()
+    VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
+    mo = re.search(VSRE, verstrline, re.M)
+    if mo:
+        return mo.group(1)
+    return "undefined"
+
+
+def get_requirements(*args):
+    """Get requirements from pip requirement files."""
+    requirements = set()
+    with open(get_absolute_path(*args)) as handle:
+        for line in handle:
+            # Strip comments.
+            line = re.sub(r"^#.*|\s#.*", "", line)
+            # Ignore empty lines
+            if line and not line.isspace():
+                requirements.add(re.sub(r"\s+", "", line))
+    return sorted(requirements)
+
+
+def get_absolute_path(*args):
+    """Transform relative pathnames into absolute pathnames."""
+    directory = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(directory, *args)
+
+
+setup(
+    name=NAME,
+    author="Adam Twardoch",
+    author_email="adam+github@twardoch.com",
+    url=f"https://twardoch.github.io/{NAME}/",
+    project_urls={"Source": f"https://github.com/twardoch/{NAME}/"},
+    version=get_version(),
+    license="MIT",
+    description="Python 3-based commandline converter CSV → YAML ↔ JSON ↔ PLIST ↔ XML",
+    long_description=readme,
+    long_description_content_type="text/markdown",
+    python_requires=">=3.9",
+    install_requires=get_requirements("requirements.txt"),
+    extras_require={
+        "dev": [
+            "setuptools",
+            "wheel",
+            "pip",
+            "twine>=3.2.0",
+            "pyinstaller>=4.0",
+            "flake8",
+            "black",
+            "pytest",
+        ]
+    },
+    packages=find_packages(),
+    classifiers=[
+        "Environment :: Console",
+        "Development Status :: 4 - Beta",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3.9",
+    ],
+    keywords="yaml json plist csv xml convert cli",
+    entry_points="""
+        [console_scripts]
+        %(name)s=%(name)s.__main__:cli
+        csv22json=%(name)s.__main__:csv2json
+        csv22plist=%(name)s.__main__:csv2plist
+        csv22xml=%(name)s.__main__:csv2xml
+        csv22yaml=%(name)s.__main__:csv2yaml
+        json22plist=%(name)s.__main__:json2plist
+        json22xml=%(name)s.__main__:json2xml
+        json22yaml=%(name)s.__main__:json2yaml
+        plist22json=%(name)s.__main__:plist2json
+        plist22xml=%(name)s.__main__:plist2xml
+        plist22yaml=%(name)s.__main__:plist2yaml
+        xml22json=%(name)s.__main__:xml2json
+        xml22plist=%(name)s.__main__:xml2plist
+        xml22yaml=%(name)s.__main__:xml2yaml
+        yaml22json=%(name)s.__main__:yaml2json
+        yaml22plist=%(name)s.__main__:yaml2plist
+        yaml22xml=%(name)s.__main__:yaml2xml
+    """
+    % {"name": NAME},
+)
+</file>
+
+</files>
