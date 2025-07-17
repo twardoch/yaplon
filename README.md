@@ -22,6 +22,16 @@ Install the latest stable release from the Python Package Index (PyPI):
 pip3 install --user --upgrade yaplon
 ```
 
+### Binary Downloads
+
+Download pre-built binaries for your platform from the [releases page](https://github.com/twardoch/yaplon/releases):
+
+- **Linux**: `yaplon-{version}-linux-x64`
+- **Windows**: `yaplon-{version}-windows-x64.exe`
+- **macOS**: `yaplon-{version}-macos-x64`
+
+Make the binary executable and add it to your PATH.
+
 ### From GitHub (Development Version)
 
 To install the latest development version directly from GitHub:
@@ -39,17 +49,13 @@ If you want to contribute to Yaplon or modify it:
     git clone https://github.com/twardoch/yaplon.git
     cd yaplon
     ```
-2.  **Create and activate a virtual environment (recommended):**
+2.  **Install development dependencies:**
     ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On macOS/Linux
-    # Or: venv\Scripts\activate  # On Windows
+    make install-dev
     ```
-3.  **Install in editable mode with development dependencies:**
-    ```bash
-    pip install -e .[dev]
-    ```
-    This installs the package so that changes you make to the source code are immediately reflected. Development dependencies include tools for testing, linting, and packaging.
+    This installs the package in editable mode with all development dependencies.
+
+For detailed build and development instructions, see [BUILD.md](./BUILD.md).
 
 ## Usage
 
@@ -225,15 +231,34 @@ Please refer to the "Installation > For Development" section above for instructi
 
 1.  **Fork the repository** on GitHub.
 2.  **Create a new branch** for your feature or bug fix: `git checkout -b my-feature-branch`.
-3.  **Make your changes.**
-4.  **Write tests** for your changes in the `tests/` directory.
-5.  **Run tests:** `make test` or `python3 -m pytest`. Ensure all tests pass.
-6.  **Lint and format your code:**
-    *   `make lint` (uses Flake8 and Black to check style)
-    *   `make format` (uses Black to automatically format code)
-7.  **Commit your changes** with a clear and descriptive commit message.
-8.  **Push your branch** to your fork: `git push origin my-feature-branch`.
-9.  **Open a Pull Request** against the `main` branch of the `twardoch/yaplon` repository.
+3.  **Set up development environment:**
+    ```bash
+    make install-dev
+    ```
+4.  **Make your changes.**
+5.  **Write tests** for your changes in the `tests/` directory.
+6.  **Run development workflow:**
+    ```bash
+    make dev  # format + lint + test-fast
+    ```
+7.  **Run full test suite:**
+    ```bash
+    make test
+    ```
+8.  **Commit your changes** with a clear and descriptive commit message.
+9.  **Push your branch** to your fork: `git push origin my-feature-branch`.
+10. **Open a Pull Request** against the `master` branch of the `twardoch/yaplon` repository.
+
+### Build System
+
+The project uses a modern build system with automated testing and releases:
+
+- **Local Development**: `make dev` for quick development workflow
+- **Testing**: `make test` for full test suite, `make test-fast` for quick tests
+- **Building**: `make build` for packages, `make build-binary` for binaries
+- **Releasing**: `python scripts/release.py --bump patch --message "msg"`
+
+For detailed information, see [BUILD.md](./BUILD.md) and [USAGE.md](./USAGE.md).
 
 ### Issue Tracking
 
