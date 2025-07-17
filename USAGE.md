@@ -98,6 +98,16 @@ python scripts/build_binaries.py --installer
 
 ## CI/CD
 
+### GitHub Actions Setup
+```bash
+# Quick setup
+./activate-workflows.sh
+
+# Manual setup
+mkdir -p .github/workflows
+cp workflows-templates/*.yml .github/workflows/
+```
+
 ### Local CI Simulation
 ```bash
 make ci
@@ -107,6 +117,8 @@ make ci
 - Push to master → Full CI
 - Create tag v1.2.3 → Release workflow
 - Open PR → PR workflow
+
+See [GITHUB_SETUP.md](./GITHUB_SETUP.md) for detailed setup instructions.
 
 ## Troubleshooting
 
@@ -140,3 +152,4 @@ pytest -v --tb=short
 | Clean | `make clean` |
 | Dev workflow | `make dev` |
 | CI workflow | `make ci` |
+| Activate workflows | `./activate-workflows.sh` |

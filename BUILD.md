@@ -215,16 +215,31 @@ Built binaries are automatically tested for:
 
 ## CI/CD Workflows
 
+### GitHub Actions Setup
+
+**Important**: Due to GitHub App permissions, workflow files are provided as templates in `workflows-templates/`. See [GITHUB_SETUP.md](./GITHUB_SETUP.md) for detailed setup instructions.
+
+### Quick Setup:
+```bash
+# Copy workflows to activate them
+mkdir -p .github/workflows
+cp workflows-templates/*.yml .github/workflows/
+
+# Configure secrets in GitHub repository settings
+# - PYPI_TOKEN: For PyPI publishing
+# - CODECOV_TOKEN: For coverage reporting (optional)
+```
+
 ### GitHub Actions Workflows
 
-1. **CI Workflow** (`.github/workflows/ci.yml`)
+1. **CI Workflow** (`workflows-templates/ci.yml`)
    - Triggered on pushes to main branches
    - Multi-platform testing (Ubuntu, Windows, macOS)
    - Python version matrix (3.9, 3.10, 3.11, 3.12)
    - Linting, formatting, and security checks
    - Coverage reporting
 
-2. **Release Workflow** (`.github/workflows/release.yml`)
+2. **Release Workflow** (`workflows-templates/release.yml`)
    - Triggered on git tags (`v*`)
    - Full test suite across all platforms
    - Package building
@@ -232,7 +247,7 @@ Built binaries are automatically tested for:
    - PyPI publishing
    - GitHub release creation
 
-3. **Pull Request Workflow** (`.github/workflows/pr.yml`)
+3. **Pull Request Workflow** (`workflows-templates/pr.yml`)
    - Triggered on pull requests
    - Fast test subset
    - Code quality checks
@@ -244,6 +259,8 @@ Built binaries are automatically tested for:
 - **Caching**: Pip dependencies cached for faster builds
 - **Artifacts**: Build artifacts uploaded and shared between jobs
 - **Security**: Automated security scanning with safety and bandit
+
+For complete setup instructions, see [GITHUB_SETUP.md](./GITHUB_SETUP.md).
 
 ## Development Workflow
 

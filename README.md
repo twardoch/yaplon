@@ -56,6 +56,7 @@ If you want to contribute to Yaplon or modify it:
     This installs the package in editable mode with all development dependencies.
 
 For detailed build and development instructions, see [BUILD.md](./BUILD.md).
+For GitHub Actions setup, see [GITHUB_SETUP.md](./GITHUB_SETUP.md).
 
 ## Usage
 
